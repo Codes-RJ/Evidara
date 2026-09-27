@@ -51,7 +51,7 @@ export default async (req: Request, context: Context) => {
         try {
             const fetchPromise = retryWithBackoff(async () => {
                 const response = await fetch(sScholarUrl, {
-                    headers: { 'User-Agent': 'AbstractiFy Research App' },
+                    headers: { 'User-Agent': 'Evidara Research App' },
                 });
                 if (!response.ok) {
                     throw new Error(`Semantic Scholar response not OK (HTTP ${response.status})`);

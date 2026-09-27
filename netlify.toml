@@ -1,9 +1,16 @@
 [build]
+  command = "npm run build"
   publish = "public"
   functions = "netlify/functions"
 
 [functions]
   node_bundler = "esbuild"
+
+[dev]
+  publish = "public"
+  port = 8888
+  framework = "#static"
+  autoLaunch = false
 
 # ──────────────────────────────────────────────
 # Security Headers

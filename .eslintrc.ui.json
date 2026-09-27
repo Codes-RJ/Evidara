@@ -1,0 +1,10 @@
+{
+    "root": true,
+    "env": { "browser": true, "es2022": true },
+    "parser": "espree",
+    "parserOptions": { "ecmaVersion": "latest", "sourceType": "module" },
+    "extends": ["eslint:recommended"],
+    "overrides": [
+        { "files": ["scripts/*.js", "scripts/*.mjs"], "env": { "node": true, "browser": false } }
+    ]
+}

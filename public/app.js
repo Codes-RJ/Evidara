@@ -1,917 +1,1190 @@
-// AbstractiFy Frontend JavaScript Logic
-// Fully handles: Search, Consensus, Matrix, Network Graph, PDF Ingestion, Chat Agent, Equation Explainer, and Transitions
+import { exportToMarkdown, exportToCsv, exportToJson, exportToBibTeX } from './js/export.js';
 
-document.addEventListener('DOMContentLoaded', () => {
-    // ─── State Management ───
-    let storedGeminiKey = localStorage.getItem('gemini_key') || '';
-    if (storedGeminiKey.startsWith('AQ.' + 'Ab8RN6JNoL')) {
-        console.warn('Automatically clearing old restricted Gemini API Key from localStorage.');
-        localStorage.removeItem('gemini_key');
-        storedGeminiKey = '';
+// Evidara's workspace uses the existing Netlify API routes. Source/model text is always inert.
+const $ = (id) => document.getElementById(id);
+const read = (key, fallback = '') => {
+    try {
+        return localStorage.getItem(key) ?? fallback;
+    } catch {
+        return fallback;
     }
-
-    const state = {
-        apiKeys: {
-            gemini: storedGeminiKey,
-            groq: localStorage.getItem('groq_key') || ''
-        },
-        geminiKeyMode: localStorage.getItem('gemini_key_mode') || 'background', // 'background' or 'byok'
-        activeModel: localStorage.getItem('active_model') || 'gemini-3.1-flash-lite',
-        searchResults: [],
-        selectedPaperId: null,
-        networkInstance: null,
-        consensusData: null,
-        matrixData: [],
-        currentQuery: '',
-        pdfChunks: [],       // stored in memory after PDF upload
-        formulas: [],
-        selectedFormula: null
-    };
-
-    // ─── DOM References ───
-    const $ = id => document.getElementById(id);
-
-    const landingView       = $('landing-view');
-    const appView           = $('app-view');
-
-    // Transitions & Navigation
-    const accessWorkspaceBtns = document.querySelectorAll('.access-workspace-btn');
-    const landingSettingsBtn  = $('landing-settings-btn');
-    const navLandingLink      = $('nav-landing-link');
-    const navBrandBtn         = $('nav-brand-btn');
-    const navSettingsLink     = $('nav-settings-link');
-
-    // Settings Modal elements
-    const settingsBtn             = $('settings-btn');
-    const settingsModal             = $('settings-modal');
-    const settingsCloseBtn          = $('settings-close-btn');
-    const saveSettingsBtn           = $('save-settings-btn');
-    const geminiKeyModeBackground   = $('gemini-key-mode-background');
-    const geminiKeyModeByok         = $('gemini-key-mode-byok');
-    const geminiKeyInputContainer   = $('gemini-key-input-container');
-    const geminiKeyInput            = $('gemini-key-input');
-    const groqKeyInput              = $('groq-key-input');
-    const modelSelect               = $('model-select');
-
-    // Search and Core Workspace elements
-    const landingSearchForm   = $('landing-search-form');
-    const landingSearchInput  = $('landing-search-input');
-    const searchForm        = $('search-form');
-    const searchInput       = $('search-input');
-    const workspaceTitle    = $('workspace-title');
-    const welcomeMessage    = $('welcome-message');
-    const loader            = $('loader');
-    const resultsList       = $('results-list'); // Cited Publications Container
-
-    // Consensus elements
-    const papersSampledBadge = $('papers-sampled-badge');
-    const consensusProgressBox = $('consensus-progress-box');
-    const barSupports       = $('consensus-bar-supports');
-    const barNeutral        = $('consensus-bar-neutral');
-    const barContradicts    = $('consensus-bar-contradicts');
-    const statSupports      = $('stat-supports');
-    const statNeutral       = $('stat-neutral');
-    const statContradicts   = $('stat-contradicts');
-    const consensusSummaryText = $('consensus-summary-text');
-
-    // Matrix & Network Graph
-    const matrixBody        = $('matrix-body');
-    const exportCsvBtn      = $('export-csv-btn');
-    const networkContainer  = $('network-container');
-
-    // PDF Ingestion & Chat
-    const uploadPdfBtn      = $('upload-pdf-btn');
-    const pdfFileInput      = $('pdf-file-input');
-    const chatForm          = $('chat-form');
-    const chatInput         = $('chat-input');
-    const chatMessages      = $('chat-messages');
-
-    // Equation Explainer
-    const formulaList       = $('formula-list');
-    const formulaExplanation = $('formula-explanation');
-    const selectedFormulaText = $('selected-formula-text');
-    const selectedFormulaDesc = $('selected-formula-desc');
-
-    // ─── Initialize settings fields ───
-    if (state.geminiKeyMode === 'byok') {
-        if (geminiKeyModeByok) geminiKeyModeByok.checked = true;
-        if (geminiKeyInputContainer) geminiKeyInputContainer.classList.remove('hidden');
-    } else {
-        if (geminiKeyModeBackground) geminiKeyModeBackground.checked = true;
-        if (geminiKeyInputContainer) geminiKeyInputContainer.classList.add('hidden');
+};
+const readJSON = (key, fallback) => {
+    try {
+        return JSON.parse(read(key)) ?? fallback;
+    } catch {
+        return fallback;
     }
-
-    if (geminiKeyInput) geminiKeyInput.value = state.apiKeys.gemini;
-    if (groqKeyInput) groqKeyInput.value = state.apiKeys.groq;
-    if (modelSelect) modelSelect.value = state.activeModel;
-
-    // Toggle custom key visibility based on mode selection
-    const updateGeminiKeyModeUI = () => {
-        if (geminiKeyModeByok && geminiKeyModeByok.checked) {
-            geminiKeyInputContainer.classList.remove('hidden');
-        } else {
-            geminiKeyInputContainer.classList.add('hidden');
-        }
-    };
-    if (geminiKeyModeBackground) geminiKeyModeBackground.addEventListener('change', updateGeminiKeyModeUI);
-    if (geminiKeyModeByok) geminiKeyModeByok.addEventListener('change', updateGeminiKeyModeUI);
-
-    // ─── View Transition Helpers ───
-    function switchToWorkspace() {
-        document.body.classList.remove('show-landing');
-        document.body.classList.add('show-app');
-        landingView.classList.add('hidden');
-        appView.classList.remove('hidden');
-        
-        // Trigger Vis Network resize recalculations
-        setTimeout(() => {
-            if (state.networkInstance) {
-                state.networkInstance.setSize('100%', '100%');
-                state.networkInstance.fit();
-            }
-        }, 100);
-    }
-
-    function switchToLanding() {
-        document.body.classList.remove('show-app');
-        document.body.classList.add('show-landing');
-        appView.classList.add('hidden');
-        landingView.classList.remove('hidden');
-    }
-
-    // Bind transition triggers
-    accessWorkspaceBtns.forEach(btn => {
-        btn.addEventListener('click', switchToWorkspace);
-    });
-
-    if (navLandingLink) navLandingLink.addEventListener('click', switchToLanding);
-    if (navBrandBtn) navBrandBtn.addEventListener('click', switchToLanding);
-    
-    // Bind Settings open triggers
-    if (landingSettingsBtn) {
-        landingSettingsBtn.addEventListener('click', () => settingsModal.classList.remove('hidden'));
-    }
-    if (navSettingsLink) {
-        navSettingsLink.addEventListener('click', () => settingsModal.classList.remove('hidden'));
-    }
-    if (settingsBtn) {
-        settingsBtn.addEventListener('click', () => settingsModal.classList.remove('hidden'));
-    }
-    if (settingsCloseBtn) {
-        settingsCloseBtn.addEventListener('click', () => settingsModal.classList.add('hidden'));
-    }
-    window.addEventListener('click', (e) => {
-        if (e.target === settingsModal) settingsModal.classList.add('hidden');
-    });
-
-    // Save Settings
-    if (saveSettingsBtn) {
-        saveSettingsBtn.addEventListener('click', () => {
-            const isByok = geminiKeyModeByok && geminiKeyModeByok.checked;
-            state.geminiKeyMode = isByok ? 'byok' : 'background';
-            state.apiKeys.gemini = isByok ? geminiKeyInput.value.trim() : '';
-            state.apiKeys.groq   = groqKeyInput.value.trim();
-            state.activeModel    = modelSelect.value;
-
-            localStorage.setItem('gemini_key_mode', state.geminiKeyMode);
-            if (isByok) {
-                localStorage.setItem('gemini_key', state.apiKeys.gemini);
-            } else {
-                localStorage.removeItem('gemini_key');
-            }
-            localStorage.setItem('groq_key', state.apiKeys.groq);
-            localStorage.setItem('active_model', state.activeModel);
-
-            appendChat('System', `Settings saved. Active model: <strong>${state.activeModel}</strong>. Key mode: <strong>${state.geminiKeyMode === 'byok' ? 'BYOK (Custom Key)' : 'System Background Key'}</strong>`);
-            settingsModal.classList.add('hidden');
-        });
-    }
-
-    // ─── Utility: Build request headers ───
-    function getHeaders() {
-        const headers = { 'Content-Type': 'application/json' };
-        if (state.geminiKeyMode === 'byok' && state.apiKeys.gemini) {
-            headers['X-Gemini-Key'] = state.apiKeys.gemini;
-        }
-        if (state.apiKeys.groq) {
-            headers['X-Groq-Key'] = state.apiKeys.groq;
-        }
-        return headers;
-    }
-
-    // ─── Utility: Append chat messages ───
-    function appendChat(sender, content) {
-        const div = document.createElement('div');
-        div.className = `message ${sender === 'User' ? 'user-message' : sender === 'System' ? 'system-message' : 'ai-message'}`;
-        div.textContent = String(content || '');
-        chatMessages.appendChild(div);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-        return div;
-    }
-
-    function appendTypingIndicator() {
-        const div = document.createElement('div');
-        div.id = 'typing-indicator';
-        div.className = 'message system-message';
-
-        const spinner = document.createElement('span');
-        spinner.className = 'spinner';
-        spinner.style.width = '14px';
-        spinner.style.height = '14px';
-        spinner.style.display = 'inline-block';
-        spinner.style.verticalAlign = 'middle';
-        spinner.style.marginRight = '8px';
-
-        div.appendChild(spinner);
-        div.appendChild(document.createTextNode(' Agent is synthesizing...'));
-
-        chatMessages.appendChild(div);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
-
-    function removeTypingIndicator() {
-        const el = $('typing-indicator');
-        if (el) el.remove();
-    }
-
-    // ══════════════════════════════════════════════════════
-    //  SEARCH HANDLERS
-    // ══════════════════════════════════════════════════════
-    
-    // Quick search from Landing Page
-    if (landingSearchForm) {
-        landingSearchForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const query = landingSearchInput.value.trim();
-            if (!query) return;
-
-            // Copy value to dashboard search bar and transition
-            searchInput.value = query;
-            switchToWorkspace();
-
-            // Fire main workspace search
-            triggerWorkspaceSearch(query);
-        });
-    }
-
-    // Search from Workspace Header
-    if (searchForm) {
-        searchForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const query = searchInput.value.trim();
-            if (!query) return;
-
-            triggerWorkspaceSearch(query);
-        });
-    }
-
-    async function triggerWorkspaceSearch(query) {
-        // Reset UI Elements
-        state.currentQuery = query;
-        if (workspaceTitle) workspaceTitle.innerText = query;
-        if (welcomeMessage) welcomeMessage.classList.add('hidden');
-        if (consensusSummaryText) consensusSummaryText.classList.add('hidden');
-        resultsList.innerHTML = '';
-        loader.classList.remove('hidden');
-        consensusProgressBox.classList.add('hidden');
-        
-        if (papersSampledBadge) {
-            papersSampledBadge.innerText = 'Analyzing Query...';
-        }
-
-        matrixBody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-secondary italic">Extracting study parameters...</td></tr>';
-        networkContainer.innerHTML = `
-            <div class="absolute inset-0 flex items-center justify-center text-center p-8 font-mono text-[10px] uppercase tracking-widest text-secondary bg-[#FDFAF6]/90 z-10 pointer-events-none">
-                Graphizing citation networks...
-            </div>
-        `;
-
-        try {
-            const res = await fetch('/api/search', {
-                method: 'POST',
-                headers: getHeaders(),
-                body: JSON.stringify({ query })
-            });
-
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || `Search failed (HTTP ${res.status})`);
-            }
-
-            const data = await res.json();
-            state.searchResults = data.papers || [];
-            loader.classList.add('hidden');
-
-            if (state.searchResults.length === 0) {
-                resultsList.innerHTML = '<div class="text-sm italic text-secondary p-4">No matching papers found. Try another query.</div>';
-                if (papersSampledBadge) papersSampledBadge.innerText = '0 Papers Sampled';
-                return;
-            }
-
-            if (papersSampledBadge) papersSampledBadge.innerText = `${state.searchResults.length} Papers Sampled`;
-
-            renderPaperCards();
-
-            // Run analysis concurrently
-            runConsensus(query);
-            runComparison();
-            runNetworkGraph(query);
-
-        } catch (error) {
-            console.error('Search error:', error);
-            loader.classList.add('hidden');
-            resultsList.innerHTML = `<div class="text-xs text-red-700 border border-red-200 bg-red-50 p-4">Error: ${error.message}</div>`;
-            if (papersSampledBadge) papersSampledBadge.innerText = 'Search Error';
-        }
-    }
-
-    // ─── Render Cited Publication Cards in Sidebar ───
-    function renderPaperCards() {
-        resultsList.innerHTML = '';
-        state.searchResults.forEach((paper, idx) => {
-            const card = document.createElement('div');
-            const stance = paper.consensusStance || 'neutral';
-            
-            // Set styles matching editorial theme
-            let stanceStyleClass = 'bg-primary/5 text-secondary';
-            if (stance === 'supports') {
-                stanceStyleClass = 'bg-accent-supporting text-primary border border-primary/10';
-            } else if (stance === 'contradicts') {
-                stanceStyleClass = 'bg-accent-contradicts text-red-800 border border-red-200';
-            } else if (stance === 'neutral') {
-                stanceStyleClass = 'bg-accent-mixed text-purple-900 border border-purple-200';
-            }
-
-            card.className = `folio-card p-5 space-y-3 group cursor-pointer ${state.selectedPaperId === paper.id ? 'border-primary bg-primary/[0.015]' : 'editorial-rule'}`;
-            
-            const idxStr = String(idx + 1).padStart(2, '0');
-            card.innerHTML = `
-                <div class="flex justify-between items-center text-[9px] font-mono uppercase tracking-widest text-secondary">
-                    <span class="${stanceStyleClass} px-2 py-0.5">${paper.year || 'N/A'} · ${stance}</span>
-                    <span>#${idxStr}</span>
-                </div>
-                <h5 class="serif-heading text-lg leading-snug group-hover:text-primary transition-colors">${paper.title}</h5>
-                <p class="font-mono text-[10px] text-primary/60">${(paper.authors || []).join(', ') || 'Unknown Author'}</p>
-            `;
-
-            card.addEventListener('click', () => {
-                document.querySelectorAll('#results-list .folio-card').forEach(c => c.classList.remove('border-primary', 'bg-primary/[0.015]'));
-                card.classList.add('border-primary', 'bg-primary/[0.015]');
-                state.selectedPaperId = paper.id;
-                appendChat('System', `Cited Item #${idxStr} selected: "${paper.title}"`);
-                loadCitationContext(paper);
-            });
-
-            resultsList.appendChild(card);
-        });
-    }
-
-    // ══════════════════════════════════════════════════════
-    //  CONSENSUS METER
-    // ══════════════════════════════════════════════════════
-    async function runConsensus(query) {
-        try {
-            const res = await fetch('/api/consensus', {
-                method: 'POST',
-                headers: getHeaders(),
-                body: JSON.stringify({ query, papers: state.searchResults })
-            });
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.message || 'Consensus API failed');
-            }
-            const data = await res.json();
-            state.consensusData = data;
-
-            const score = data.consensusScore || 0;
-            if (papersSampledBadge) {
-                papersSampledBadge.innerText = `${state.searchResults.length} Papers · ${Math.round(score)}% Agreement`;
-            }
-
-            // Calculate percentage segments dynamically
-            const totalCount = (data.supportsCount || 0) + (data.neutralCount || 0) + (data.contradictsCount || 0);
-            if (totalCount > 0) {
-                const supportsPct = Math.round(((data.supportsCount || 0) / totalCount) * 100);
-                const neutralPct = Math.round(((data.neutralCount || 0) / totalCount) * 100);
-                const contradictsPct = 100 - supportsPct - neutralPct;
-
-                barSupports.style.width = `${supportsPct}%`;
-                barNeutral.style.width = `${neutralPct}%`;
-                barContradicts.style.width = `${contradictsPct}%`;
-
-                statSupports.innerText = `Supports (${supportsPct}%)`;
-                statNeutral.innerText = `Mixed (${neutralPct}%)`;
-                statContradicts.innerText = `Opposes (${contradictsPct}%)`;
-            } else {
-                barSupports.style.width = '0%';
-                barNeutral.style.width = '0%';
-                barContradicts.style.width = '0%';
-            }
-
-            consensusProgressBox.classList.remove('hidden');
-            consensusSummaryText.innerText = data.summaryText || 'Synthesis complete.';
-            consensusSummaryText.classList.remove('hidden');
-
-            if (data.paperStances) {
-                state.searchResults.forEach(p => {
-                    if (data.paperStances[p.id]) p.consensusStance = data.paperStances[p.id];
-                });
-                renderPaperCards();
-            }
-        } catch (err) {
-            console.error('Consensus error:', err);
-            consensusSummaryText.innerText = `Could not classify consensus. ${err.message}`;
-            consensusSummaryText.classList.remove('hidden');
-        }
-    }
-
-    // ══════════════════════════════════════════════════════
-    //  STUDY COMPARISON MATRIX
-    // ══════════════════════════════════════════════════════
-    async function runComparison() {
-        try {
-            const res = await fetch('/api/compare', {
-                method: 'POST',
-                headers: getHeaders(),
-                body: JSON.stringify({ papers: state.searchResults })
-            });
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.message || 'Comparison failed');
-            }
-            const data = await res.json();
-            state.matrixData = data.matrix || [];
-
-            matrixBody.innerHTML = '';
-            exportCsvBtn.classList.remove('hidden');
-
-            (data.matrix || []).forEach(row => {
-                const tr = document.createElement('tr');
-                tr.className = 'border-b editorial-rule hover:bg-primary/[0.015] transition-colors';
-                tr.innerHTML = `
-                    <td class="py-6 font-semibold text-primary text-sm max-w-xs">${row.title || 'N/A'}</td>
-                    <td class="py-6 text-secondary italic text-sm">${row.datasetSize || 'Unknown'}</td>
-                    <td class="py-6 font-mono text-[11px] text-secondary max-w-xs">${row.methodology || 'N/A'}</td>
-                    <td class="py-6 font-mono text-[11px] text-secondary max-w-xs">${row.outcomes || 'N/A'}</td>
-                    <td class="py-6 font-mono text-[11px] text-secondary max-w-xs">${row.limitations || 'N/A'}</td>
-                `;
-                matrixBody.appendChild(tr);
-            });
-        } catch (err) {
-            console.error('Matrix error:', err);
-            matrixBody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-red-800 italic">Error extracting parameters: ${err.message}</td></tr>`;
-        }
-    }
-
-    // ══════════════════════════════════════════════════════
-    //  CITATION NETWORK GRAPH (Vis.js)
-    // ══════════════════════════════════════════════════════
-    async function runNetworkGraph(query) {
-        try {
-            const res = await fetch('/api/network-graph', {
-                method: 'POST',
-                headers: getHeaders(),
-                body: JSON.stringify({ query, papers: state.searchResults })
-            });
-            if (!res.ok) throw new Error('Network graph failed');
-            const data = await res.json();
-
-            networkContainer.innerHTML = '';
-
-            if (!data.nodes || data.nodes.length === 0) {
-                networkContainer.innerHTML = `
-                    <div class="absolute inset-0 flex items-center justify-center text-center p-8 font-mono text-[10px] uppercase tracking-widest text-secondary">
-                        No citation connections found.
-                    </div>
-                `;
-                return;
-            }
-
-            // Node visual options styled like an academic blueprint
-            const nodes = new vis.DataSet(data.nodes.map(n => ({
-                id: n.id,
-                label: n.title ? (n.title.length > 20 ? n.title.substring(0, 18) + '...' : n.title) : '?',
-                title: `${n.title} (${n.year || 'N/A'}, Citations: ${n.citations || 0})`,
-                value: n.citations || 4,
-                color: {
-                    background: '#FDFAF6',
-                    border: '#002147',
-                    hover: { background: '#E8F0F2', border: '#002147' },
-                    highlight: { background: '#E8F0F2', border: '#002147' }
-                },
-                shape: 'dot',
-                borderWidth: 1.5,
-                font: { color: '#1A1A1A', face: 'Times New Roman', size: 10 }
-            })));
-
-            const edges = new vis.DataSet(data.edges.map(e => ({
-                from: e.source,
-                to: e.target,
-                arrows: 'to',
-                color: { color: '#D1CDC7', highlight: '#002147' }
-            })));
-
-            const options = {
-                nodes: { scaling: { min: 8, max: 24 } },
-                physics: {
-                    stabilization: { iterations: 80 },
-                    barnesHut: { gravitationalConstant: -2500, centralGravity: 0.25, springLength: 85 }
-                },
-                interaction: { hover: true, tooltipDelay: 150 }
-            };
-
-            state.networkInstance = new vis.Network(networkContainer, { nodes, edges }, options);
-
-            state.networkInstance.on('click', (params) => {
-                if (params.nodes.length > 0) {
-                    const paper = state.searchResults.find(p => p.id === params.nodes[0]);
-                    if (paper) {
-                        appendChat('System', `Focus Node selected: "${paper.title}"`);
-                        loadCitationContext(paper);
-                    }
-                }
-            });
-        } catch (err) {
-            console.error('Network error:', err);
-            networkContainer.innerHTML = `
-                <div class="absolute inset-0 flex items-center justify-center text-center p-8 font-mono text-[10px] uppercase tracking-widest text-red-800 bg-[#FDFAF6]/90 z-10 pointer-events-none">
-                    Error compiling networks.
-                </div>
-            `;
-        }
-    }
-
-    // ══════════════════════════════════════════════════════
-    //  CITATION CONTEXT (Scite-style intents)
-    // ══════════════════════════════════════════════════════
-    async function loadCitationContext(paper) {
-        try {
-            const res = await fetch('/api/citation-context', {
-                method: 'POST',
-                headers: getHeaders(),
-                body: JSON.stringify({ doi: paper.doi, title: paper.title })
-            });
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-
-            let html = `<strong>GENEALOGICAL CITATION INTENTS:</strong><br/>"${paper.title}"<br/><br/>`;
-            
-            html += `<strong>Supports (${data.supporting.length}):</strong><br/>`;
-            (data.supporting || []).slice(0, 2).forEach(s => html += `— <em>"${s.context}"</em><br/>`);
-            if (!data.supporting.length) html += '— None annotated.<br/>';
-
-            html += `<br/><strong>Contradicts (${data.contradicting.length}):</strong><br/>`;
-            (data.contradicting || []).slice(0, 2).forEach(s => html += `— <em>"${s.context}"</em><br/>`);
-            if (!data.contradicting.length) html += '— None annotated.<br/>';
-
-            html += `<br/><strong>Mentioning (${data.mentioning.length}):</strong><br/>`;
-            if (data.mentioning.length) html += `— <em>"${data.mentioning[0].context}"</em>`;
-            else html += '— None annotated.';
-
-            appendChat('AI', html);
-        } catch {
-            appendChat('AI', `<strong>${paper.title}</strong> (${paper.year || 'N/A'})<br/><br/>Abstract: ${paper.abstract || 'No abstract available.'}`);
-        }
-    }
-
-    // ══════════════════════════════════════════════════════
-    //  EXPORT SUITE (Markdown, CSV, JSON, BibTeX)
-    // ══════════════════════════════════════════════════════
-    function downloadFile(filename, content, contentType = 'text/plain') {
-        const blob = new Blob([content], { type: contentType });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
-
-    // Toggle Dropdown Menus
-    const dropdowns = [
-        { btn: 'export-consensus-btn', menu: 'export-consensus-menu' },
-        { btn: 'export-matrix-menu-btn', menu: 'export-matrix-menu' },
-        { btn: 'export-graph-menu-btn', menu: 'export-graph-menu' }
-    ];
-
-    dropdowns.forEach(({ btn, menu }) => {
-        const btnEl = $(btn);
-        const menuEl = $(menu);
-        if (btnEl && menuEl) {
-            btnEl.addEventListener('click', (e) => {
-                e.stopPropagation();
-                dropdowns.forEach(d => {
-                    if (d.menu !== menu) {
-                        const otherMenu = $(d.menu);
-                        if (otherMenu) otherMenu.classList.add('hidden');
-                    }
-                });
-                menuEl.classList.toggle('hidden');
-            });
-        }
-    });
-
-    // Close menus on click outside
-    document.addEventListener('click', () => {
-        dropdowns.forEach(({ menu }) => {
-            const menuEl = $(menu);
-            if (menuEl) menuEl.classList.add('hidden');
-        });
-    });
-
-    // 1. Export Consensus Markdown (.md)
-    const exportConsensusMdBtn = $('export-consensus-md');
-    if (exportConsensusMdBtn) {
-        exportConsensusMdBtn.addEventListener('click', () => {
-            const query = state.currentQuery || 'Research Analysis';
-            const consensus = state.consensusData || {};
-            const score = consensus.consensusScore || 0;
-            const summary = consensus.summaryText || 'No summary text generated.';
-            
-            const safeQuery = String(query).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            let md = `---\n`;
-            md += `title: "AbstractiFy Scientific Consensus Summary"\n`;
-            md += `query: "${safeQuery}"\n`;
-            md += `date: "${new Date().toISOString().split('T')[0]}"\n`;
-            md += `consensusScore: "${Math.round(score)}%"\n`;
-            md += `sampledPapers: ${state.searchResults.length}\n`;
-            md += `---\n\n`;
-            md += `# 📊 Scientific Consensus Synthesis\n\n`;
-            md += `> **Assertion Query**: ${query}\n\n`;
-            md += `## Executive Summary\n\n${summary}\n\n`;
-            md += `## Paper Stances & Evidence\n\n`;
-            md += `| Paper Title | Year | Venue | Stance | Citations |\n`;
-            md += `|---|---|---|---|---|\n`;
-
-            state.searchResults.forEach(p => {
-                const stance = p.consensusStance || 'Neutral';
-                md += `| ${(p.title || 'N/A').replace(/\|/g, '-')} | ${p.year || 'N/A'} | ${p.venue || 'Journal'} | **${stance}** | ${p.citationCount || 0} |\n`;
-            });
-
-            downloadFile(`AbstractiFy_Consensus_${query.replace(/[^a-zA-Z0-9]/g, '_')}.md`, md, 'text/markdown');
-        });
-    }
-
-    // 2. Export Consensus JSON (.json)
-    const exportConsensusJsonBtn = $('export-consensus-json');
-    if (exportConsensusJsonBtn) {
-        exportConsensusJsonBtn.addEventListener('click', () => {
-            const data = {
-                generator: "AbstractiFy Academic Portal",
-                timestamp: new Date().toISOString(),
-                query: state.currentQuery,
-                consensus: state.consensusData,
-                papers: state.searchResults
-            };
-            downloadFile(`AbstractiFy_Consensus_${(state.currentQuery || 'analysis').replace(/[^a-zA-Z0-9]/g, '_')}.json`, JSON.stringify(data, null, 2), 'application/json');
-        });
-    }
-
-    // 3. Export Comparison Matrix CSV (.csv)
-    if (exportCsvBtn) {
-        exportCsvBtn.addEventListener('click', () => {
-            const table = document.querySelector('table');
-            if (!table) return;
-            const rows = [];
-            for (let i = 0; i < table.rows.length; i++) {
-                const cells = [];
-                for (let j = 0; j < table.rows[i].cells.length; j++) {
-                    cells.push('"' + table.rows[i].cells[j].innerText.replace(/"/g, '""') + '"');
-                }
-                rows.push(cells.join(','));
-            }
-            downloadFile('AbstractiFy_Comparison_Matrix.csv', rows.join('\n'), 'text/csv');
-        });
-    }
-
-    // 4. Export Comparison Matrix Markdown Table (.md)
-    const exportMatrixMdBtn = $('export-matrix-md-btn');
-    if (exportMatrixMdBtn) {
-        exportMatrixMdBtn.addEventListener('click', () => {
-            let md = `# 🧮 Study Comparison Matrix\n\n`;
-            md += `> Query: ${state.currentQuery || 'Literature Analysis'}\n\n`;
-            md += `| Publication | Dataset Size | Methodology | Outcomes | Limitations |\n`;
-            md += `|---|---|---|---|---|\n`;
-
-            if (state.matrixData && state.matrixData.length > 0) {
-                state.matrixData.forEach(row => {
-                    md += `| **${(row.title || 'N/A').replace(/\|/g, '-')}** | ${row.datasetSize || 'N/A'} | ${row.methodology || 'N/A'} | ${row.outcomes || 'N/A'} | ${row.limitations || 'N/A'} |\n`;
-                });
-            } else {
-                md += `| No data available | N/A | N/A | N/A | N/A |\n`;
-            }
-
-            downloadFile('AbstractiFy_Comparison_Matrix.md', md, 'text/markdown');
-        });
-    }
-
-    // 5. Export Citation Network JSON (Obsidian Graph format) (.json)
-    const exportGraphJsonBtn = $('export-graph-json-btn');
-    if (exportGraphJsonBtn) {
-        exportGraphJsonBtn.addEventListener('click', () => {
-            const nodes = state.searchResults.map(p => ({
-                id: p.id,
-                label: p.title,
-                year: p.year,
-                citationCount: p.citationCount,
-                authors: (p.authors || []).map(a => a.name),
-                doi: p.doi || null,
-                url: p.url || null
-            }));
-
-            const graphData = {
-                generator: "AbstractiFy Obsidian Graph Exporter",
-                query: state.currentQuery,
-                exportedAt: new Date().toISOString(),
-                nodesCount: nodes.length,
-                nodes: nodes
-            };
-
-            downloadFile(`AbstractiFy_Citation_Graph_${(state.currentQuery || 'network').replace(/[^a-zA-Z0-9]/g, '_')}.json`, JSON.stringify(graphData, null, 2), 'application/json');
-        });
-    }
-
-    // 6. Export BibTeX References (.bib)
-    const exportGraphBibtexBtn = $('export-graph-bibtex-btn');
-    if (exportGraphBibtexBtn) {
-        exportGraphBibtexBtn.addEventListener('click', () => {
-            if (state.searchResults.length === 0) {
-                alert('No search results available to export to BibTeX.');
-                return;
-            }
-
-            let bib = `% AbstractiFy Generated BibTeX Bibliography\n`;
-            bib += `% Query: ${state.currentQuery || 'Academic Search'}\n\n`;
-
-            state.searchResults.forEach((p, idx) => {
-                const firstAuthor = (p.authors && p.authors[0]) ? p.authors[0].name.split(' ').pop().toLowerCase() : 'author';
-                const year = p.year || '2026';
-                const citationKey = `${firstAuthor}${year}paper${idx + 1}`;
-                const authorList = (p.authors || []).map(a => a.name).join(' and ');
-
-                bib += `@article{${citationKey},\n`;
-                bib += `  author = {${authorList || 'Unknown Author'}},\n`;
-                bib += `  title = {{${p.title}}},\n`;
-                bib += `  year = {${year}},\n`;
-                if (p.venue) bib += `  journal = {${p.venue}},\n`;
-                if (p.doi) bib += `  doi = {${p.doi}},\n`;
-                if (p.url) bib += `  url = {${p.url}},\n`;
-                bib += `}\n\n`;
-            });
-
-            downloadFile(`AbstractiFy_References_${(state.currentQuery || 'bib').replace(/[^a-zA-Z0-9]/g, '_')}.bib`, bib, 'text/plain');
-        });
-    }
-
-    // ══════════════════════════════════════════════════════
-    //  PDF UPLOAD & INGESTION
-    // ══════════════════════════════════════════════════════
-    if (uploadPdfBtn) {
-        uploadPdfBtn.addEventListener('click', () => pdfFileInput.click());
-    }
-
-    if (pdfFileInput) {
-        pdfFileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) handlePdfFile(e.target.files[0]);
-        });
-    }
-
-    async function handlePdfFile(file) {
-        if (file.type !== 'application/pdf') {
-            alert('Please select a valid academic PDF document.');
-            return;
-        }
-
-        appendChat('System', `🔧 INGESTING FOLIO: "${file.name}"...`);
-
-        const formData = new FormData();
-        formData.append('pdf', file);
-
-        const headers = {};
-
-        try {
-            const res = await fetch('/api/pdf-upload', {
-                method: 'POST',
-                headers: headers,
-                body: formData
-            });
-
-            if (!res.ok) throw new Error('Upload failed');
-            const data = await res.json();
-
-            // Store chunks in client-side state for chat RAG
-            state.pdfChunks = data.chunks || [];
-            state.formulas  = data.formulas || [];
-
-            appendChat('AI', `✅ SUCCESSFULLY INGESTED <strong>${file.name}</strong><br/>distilled ${data.chunkCount || 0} semantic blocks, ${state.formulas.length} mathematical equations. You can now prompt the assistant about this document.`);
-            renderFormulas();
-
-        } catch (err) {
-            console.error('PDF upload error:', err);
-            appendChat('System', `Failed to ingest PDF. Please select an alternate publication.`);
-            pdfClear();
-        }
-    }
-
-    function pdfClear() {
-        pdfFileInput.value = '';
-        state.pdfChunks = [];
-        state.formulas = [];
-        state.selectedFormula = null;
-        formulaList.innerHTML = '<span class="text-[11px] text-secondary italic">Upload a PDF to extract math formulas automatically</span>';
-        formulaExplanation.classList.add('hidden');
-    }
-
-    // ══════════════════════════════════════════════════════
-    //  EQUATION EXPLAINER
-    // ══════════════════════════════════════════════════════
-    function renderFormulas() {
-        formulaList.innerHTML = '';
-        if (state.formulas.length === 0) {
-            formulaList.innerHTML = '<span class="text-[11px] text-secondary italic">No mathematical foundations detected in PDF.</span>';
-            return;
-        }
-        state.formulas.forEach((formula) => {
-            const span = document.createElement('span');
-            span.className = 'formula-item font-mono text-[9px] border border-primary/20 px-2 py-0.5 cursor-pointer hover:bg-primary/5';
-            span.innerText = formula.equation;
-            span.addEventListener('click', () => {
-                document.querySelectorAll('.formula-item').forEach(s => s.classList.remove('selected', 'solid-texture-fill', 'text-background'));
-                span.classList.add('selected', 'solid-texture-fill', 'text-background');
-                explainEquation(formula);
-            });
-            formulaList.appendChild(span);
-        });
-    }
-
-    async function explainEquation(formula) {
-        formulaExplanation.classList.remove('hidden');
-        selectedFormulaText.innerText = formula.equation;
-        selectedFormulaDesc.innerHTML = '<div class="spinner" style="margin:10px auto;"></div>';
-
-        try {
-            const res = await fetch('/api/pdf-explain-math', {
-                method: 'POST',
-                headers: getHeaders(),
-                body: JSON.stringify({ equation: formula.equation, context: formula.context })
-            });
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-
-            selectedFormulaDesc.innerHTML = `
-                <strong class="text-primary not-italic font-bold">Derivation & Variables:</strong><br/>
-                ${(data.breakdown || '').replace(/\n/g, '<br/>')}<br/><br/>
-                <strong class="text-primary not-italic font-bold">Physical Analogy:</strong><br/>
-                <em>${data.analogy || 'N/A'}</em>
-            `;
-        } catch {
-            selectedFormulaDesc.innerText = 'Could not compile physical explanation. Verify credentials.';
-        }
-    }
-
-    // ══════════════════════════════════════════════════════
-    //  AGENTIC CHAT ASSISTANT
-    // ══════════════════════════════════════════════════════
-    chatForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const userMsg = chatInput.value.trim();
-        if (!userMsg) return;
-
-        appendChat('User', `QUERY: ${userMsg}`);
-        chatInput.value = '';
-        appendTypingIndicator();
-
-        try {
-            const res = await fetch('/api/pdf-chat', {
-                method: 'POST',
-                headers: getHeaders(),
-                body: JSON.stringify({
-                    message: userMsg,
-                    chunks: state.pdfChunks,
-                    searchResults: state.searchResults
-                })
-            });
-
-            removeTypingIndicator();
-
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.message || 'Agent failed to respond.');
-            }
-            const data = await res.json();
-
-            // Append execution logs as system notifications
-            if (data.logs && data.logs.length > 0) {
-                data.logs.forEach(log => appendChat('System', `🔧 ${log}`));
-            }
-
-            appendChat('AI', data.reply || 'No response generated.');
-
-        } catch (err) {
-            removeTypingIndicator();
-            appendChat('AI', `System Failure: ${err.message}`);
-        }
-    });
+};
+const uid = () => crypto.randomUUID();
+const node = (tag, text = '', className = '') => {
+    const element = document.createElement(tag);
+    element.textContent = String(text ?? '');
+    if (className) element.className = className;
+    return element;
+};
+const icon = (name) => {
+    const element = node('i', '', `ph ph-${name}`);
+    element.setAttribute('aria-hidden', 'true');
+    return element;
+};
+let toastTimer;
+function toast(message) {
+    $('toast').textContent = message;
+    $('toast').hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+        $('toast').hidden = true;
+    }, 4200);
+}
+function status(id, message = '', kind = '') {
+    const element = $(id);
+    element.textContent = message;
+    element.className = `status-line ${kind}`;
+}
+function empty(container, title, message, symbol = 'books') {
+    const wrapper = node('div', '', 'empty-state');
+    wrapper.append(icon(symbol), node('h3', title), node('p', message));
+    container.replaceChildren(wrapper);
+}
+const blankProject = (title = 'Untitled research') => ({
+    id: uid(),
+    title,
+    query: '',
+    papers: [],
+    library: [],
+    consensus: null,
+    matrix: [],
+    graph: { nodes: [], edges: [] },
+    notes: '',
+    createdAt: new Date().toISOString(),
 });
+let projects = readJSON('evidara_projects', []);
+if (!Array.isArray(projects)) projects = [];
+projects = projects.filter(
+    (project) => project && typeof project.id === 'string' && typeof project.title === 'string',
+);
+const restored = projects.find((project) => project.id === read('evidara_active_project'));
+const state = {
+    ...blankProject(),
+    ...restored,
+    key: read('evidara_gemini_key', read('gemini_key')),
+    groqKey: read('evidara_groq_key', read('groq_key')),
+    keyMode: read('evidara_key_mode', read('gemini_key_mode', 'background')),
+    selectedId: null,
+    pdf: null,
+    view: 'discover',
+    run: 0,
+    controller: null,
+    network: null,
+    readerMode: 'paper',
+    contextRun: 0,
+    documentRun: 0,
+    chatRun: 0,
+    mathRun: 0,
+};
+for (const field of ['papers', 'library', 'matrix'])
+    if (!Array.isArray(state[field])) state[field] = [];
+if (!state.graph || !Array.isArray(state.graph.nodes) || !Array.isArray(state.graph.edges))
+    state.graph = { nodes: [], edges: [] };
+
+function persist() {
+    const snapshot = Object.fromEntries(
+        [
+            'id',
+            'title',
+            'query',
+            'papers',
+            'library',
+            'consensus',
+            'matrix',
+            'graph',
+            'notes',
+            'createdAt',
+        ].map((field) => [field, state[field]]),
+    );
+    snapshot.updatedAt = new Date().toISOString();
+    const next = [snapshot, ...projects.filter((project) => project.id !== state.id)].slice(0, 20);
+    try {
+        localStorage.setItem('evidara_projects', JSON.stringify(next));
+        localStorage.setItem('evidara_active_project', state.id);
+        projects = next;
+        $('save-status').textContent = 'Saved in this browser';
+        return true;
+    } catch {
+        $('save-status').textContent = 'Not saved · storage unavailable';
+        return false;
+    }
+}
+function headers(json = true) {
+    const result = json ? { 'Content-Type': 'application/json' } : {};
+    if (state.keyMode === 'byok' && state.key) result['X-Gemini-Key'] = state.key;
+    if (state.groqKey) result['X-Groq-Key'] = state.groqKey;
+    return result;
+}
+async function request(route, body, signal) {
+    const timeout = AbortSignal.timeout(90000);
+    const response = await fetch(`/api/${route}`, {
+        method: 'POST',
+        headers: headers(!(body instanceof FormData)),
+        body: body instanceof FormData ? body : JSON.stringify(body),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    let data;
+    try {
+        data = await response.json();
+    } catch {
+        throw new Error('The research service is unavailable. Please try again.');
+    }
+    if (!response.ok)
+        throw new Error(
+            String(data.message || data.error || `Request failed (${response.status})`),
+        );
+    return data;
+}
+function projectHeading() {
+    $('project-name').textContent = state.title;
+    $('breadcrumb-project').textContent = state.title;
+}
+function setNav(open) {
+    document.body.classList.toggle('nav-open', open);
+    $('sidebar-scrim').hidden = !open;
+    $('menu-toggle').setAttribute('aria-expanded', String(open));
+    $('sidebar').inert = matchMedia('(max-width: 760px)').matches && !open;
+}
+function showView(view, updateHash = true) {
+    if (!['discover', 'library', 'evidence', 'reader', 'map', 'brief'].includes(view))
+        view = 'discover';
+    state.view = view;
+    document.querySelectorAll('.view').forEach((element) => {
+        element.hidden = element.id !== `view-${view}`;
+    });
+    document.querySelectorAll('[data-view]').forEach((element) => {
+        const active = element.dataset.view === view;
+        element.classList.toggle('active', active);
+        if (active) element.setAttribute('aria-current', 'page');
+        else element.removeAttribute('aria-current');
+    });
+    $('breadcrumb-view').textContent = {
+        map: 'Citation map',
+        discover: 'Discover',
+        library: 'Library',
+        evidence: 'Evidence',
+        reader: 'Reader',
+        brief: 'Brief',
+    }[view];
+    if (updateHash && location.hash !== `#${view}`) history.pushState(null, '', `#${view}`);
+    setNav(false);
+    if (view === 'library') renderLibrary();
+    if (view === 'brief') renderBrief();
+    if (view === 'map') requestAnimationFrame(renderGraph);
+    window.scrollTo({ top: 0 });
+}
+function paperUrl(paper) {
+    if (typeof paper.doi === 'string' && paper.doi.trim())
+        return `https://doi.org/${encodeURI(paper.doi.replace(/^https?:\/\/doi\.org\//i, ''))}`;
+    if (typeof paper.id === 'string' && /^https:\/\/openalex\.org\/W\d+$/i.test(paper.id))
+        return paper.id;
+    if (typeof paper.id === 'string' && /^[a-z0-9-]+$/i.test(paper.id))
+        return `https://www.semanticscholar.org/paper/${encodeURIComponent(paper.id)}`;
+    return `https://www.semanticscholar.org/search?q=${encodeURIComponent(paper.title || '')}`;
+}
+function renderPapers(container, papers, library = false) {
+    if (!papers.length) {
+        empty(
+            container,
+            library ? 'Your reading list, ready to grow.' : 'No matching papers found.',
+            library
+                ? 'Save a paper in Discover to keep it in this project.'
+                : 'Try a broader research question or a different phrase.',
+        );
+        return;
+    }
+    container.replaceChildren();
+    const sorted = [...papers];
+    if (!library && $('paper-sort').value === 'citations')
+        sorted.sort((a, b) => (b.citations || 0) - (a.citations || 0));
+    if (!library && $('paper-sort').value === 'recent')
+        sorted.sort((a, b) => (b.year || 0) - (a.year || 0));
+    sorted.forEach((paper, index) => {
+        const row = node(
+            'article',
+            '',
+            `paper-row${paper.id === state.selectedId ? ' selected' : ''}`,
+        );
+        const content = node('div');
+        const titleRow = node('div', '', 'paper-title-row');
+        const title = node('button', paper.title || 'Untitled paper', 'paper-title');
+        title.addEventListener('click', () => selectPaper(paper));
+        const source = node('a', 'View source', 'source-link');
+        source.href = paperUrl(paper);
+        source.target = '_blank';
+        source.rel = 'noopener noreferrer';
+        source.append(icon('arrow-square-out'));
+        titleRow.append(title, source);
+        const authors = Array.isArray(paper.authors) ? paper.authors.join(', ') : 'Unknown author';
+        const metadata = [authors || 'Unknown author', paper.year || 'Year unknown', paper.venue]
+            .filter(Boolean)
+            .join(' · ');
+        content.append(
+            titleRow,
+            node('p', metadata, 'paper-meta'),
+            node('p', paper.abstract || 'No abstract available.', 'paper-abstract'),
+        );
+        if (paper.id === state.selectedId && paper.abstract)
+            content.append(
+                node(
+                    'div',
+                    `Abstract excerpt: ${paper.abstract.slice(0, 180)}${paper.abstract.length > 180 ? '…' : ''}`,
+                    'source-excerpt',
+                ),
+            );
+        const tags = node('div', '', 'paper-tags');
+        tags.append(
+            node('span', `Cited by ${Number(paper.citations || 0).toLocaleString()}`, 'paper-tag'),
+        );
+        if (paper.doi) tags.append(node('span', paper.doi, 'paper-tag'));
+        if (paper.consensusStance)
+            tags.append(
+                node(
+                    'span',
+                    { supports: 'Supports', contradicts: 'Conflicts', neutral: 'Mixed / unclear' }[
+                        paper.consensusStance
+                    ] || 'Unclassified',
+                    'paper-tag',
+                ),
+            );
+        const saved = state.library.some((item) => item.id === paper.id);
+        const save = node('button', '', 'save-paper');
+        save.setAttribute('aria-pressed', String(saved));
+        save.setAttribute(
+            'aria-label',
+            `${saved ? 'Remove from' : 'Save to'} library: ${paper.title}`,
+        );
+        save.append(
+            icon(saved ? 'bookmark-simple' : 'bookmark'),
+            node('span', saved ? 'Saved' : 'Save'),
+        );
+        save.addEventListener('click', () => {
+            state.library = saved
+                ? state.library.filter((item) => item.id !== paper.id)
+                : [...state.library, paper];
+            persist();
+            renderResults();
+            renderLibrary();
+            toast(saved ? 'Paper removed from this library.' : 'Paper saved to this library.');
+        });
+        tags.append(save);
+        content.append(tags);
+        row.append(node('span', index + 1, 'paper-index'), content);
+        container.append(row);
+    });
+}
+function renderResults() {
+    renderPapers($('results-list'), state.papers);
+}
+function renderLibrary() {
+    renderPapers($('library-list'), state.library, true);
+    $('library-count').textContent = state.library.length;
+    $('library-count').hidden = !state.library.length;
+}
+function renderConsensus() {
+    const data = state.consensus;
+    $('consensus-progress-box').hidden = !data;
+    $('papers-sampled-badge').textContent = state.papers.length
+        ? `Across ${state.papers.length} analyzed papers`
+        : 'Your research starts here';
+    if (!data) {
+        $('consensus-summary-text').textContent = state.papers.length
+            ? 'The synthesis is not available yet. You can still inspect and save your sources.'
+            : 'Start with a question. Evidara will find relevant papers and help you see where their findings align—and where they differ.';
+        return;
+    }
+    $('consensus-summary-text').textContent = data.summaryText || 'No synthesis was returned.';
+    const counts = [data.supportsCount, data.neutralCount, data.contradictsCount].map((value) =>
+        Math.max(0, Number(value) || 0),
+    );
+    const total = counts.reduce((a, b) => a + b, 0);
+    ['supports', 'neutral', 'contradicts'].forEach((type, index) => {
+        $(`stat-${type}`).textContent = counts[index];
+        $(`consensus-bar-${type}`).style.width = `${total ? (counts[index] / total) * 100 : 0}%`;
+    });
+    $('analysis-basis').textContent = String(data.summaryText).includes('[Local Fallback Mode]')
+        ? 'Keyword-based fallback · configure Gemini for AI analysis. These counts do not establish scientific certainty.'
+        : 'Abstract-based stance across this sample. Counts are not a measure of scientific certainty.';
+}
+function renderMatrix(message) {
+    const body = $('matrix-body');
+    body.replaceChildren();
+    if (!state.matrix.length) {
+        const row = node('tr');
+        const cell = node(
+            'td',
+            message || 'Search for papers to build a comparison matrix.',
+            'table-empty',
+        );
+        cell.colSpan = 5;
+        row.append(cell);
+        body.append(row);
+        return;
+    }
+    state.matrix.forEach((item) => {
+        const row = node('tr');
+        for (const field of ['title', 'datasetSize', 'methodology', 'outcomes', 'limitations'])
+            row.append(node('td', item[field] || 'Not reported'));
+        body.append(row);
+    });
+}
+function graphLabel(title) {
+    const text = String(title || 'Paper');
+    if (text.length <= 26) return text;
+    const boundary = text.lastIndexOf(' ', 26);
+    const split = boundary >= 12 ? boundary : 26;
+    const remainder = text.slice(split).trim();
+    return `${text.slice(0, split)}\n${remainder.slice(0, 26).trim()}${remainder.length > 26 ? '…' : ''}`;
+}
+function fitGraph() {
+    if (!state.network) return;
+    state.network.fit({ animation: false });
+    state.network.moveTo({ scale: state.network.getScale() * 0.85, animation: false });
+}
+function renderGraph() {
+    if (state.view !== 'map') return;
+    if (state.network) {
+        state.network.destroy();
+        state.network = null;
+    }
+    const container = $('network-container');
+    if (!state.graph.nodes.length) {
+        empty(
+            container,
+            'No citation map yet.',
+            state.papers.length
+                ? 'Citation relationships may be unavailable for these sources.'
+                : 'Search for papers to explore their connections.',
+            'graph',
+        );
+        return;
+    }
+    if (!window.vis?.Network) {
+        empty(
+            container,
+            'The graph could not load.',
+            'Citation relationships are still available in the list below.',
+            'graph',
+        );
+        return;
+    }
+    container.replaceChildren();
+    const nodes = state.graph.nodes.map((paper) => ({
+        id: paper.id,
+        label: graphLabel(paper.title),
+        title: node('div', paper.title),
+        value: Math.max(1, Math.log2((paper.citations || 0) + 2)),
+        color: {
+            background: '#e3edff',
+            border: '#82a9e3',
+            highlight: { background: '#bcd6ff', border: '#075cf4' },
+        },
+    }));
+    state.network = new window.vis.Network(
+        container,
+        {
+            nodes,
+            edges: state.graph.edges.map((edge) => ({
+                from: edge.source,
+                to: edge.target,
+                arrows: 'to',
+            })),
+        },
+        {
+            nodes: { shape: 'dot', font: { face: 'Inter', size: 12, color: '#304b73' } },
+            edges: { color: '#bccde5', smooth: { type: 'continuous' }, width: 1 },
+            layout: { randomSeed: 7 },
+            physics: {
+                solver: 'repulsion',
+                repulsion: {
+                    nodeDistance: 240,
+                    springLength: 260,
+                    springConstant: 0.03,
+                    centralGravity: 0.05,
+                },
+                stabilization: { iterations: 180 },
+            },
+            interaction: { hover: true, navigationButtons: false, keyboard: true },
+        },
+    );
+    state.network.once('stabilized', fitGraph);
+    state.network.on('selectNode', ({ nodes: selected }) => {
+        const paper = state.papers.find((item) => item.id === selected[0]);
+        if (paper) {
+            selectPaper(paper);
+            toast('Paper selected. Open Reader to inspect it.');
+        }
+    });
+}
+function renderEdges() {
+    const list = $('graph-edge-list');
+    list.replaceChildren();
+    const names = new Map(state.graph.nodes.map((paper) => [paper.id, paper.title]));
+    if (!state.graph.edges.length)
+        list.append(node('li', 'No citation relationships are available.'));
+    state.graph.edges.forEach((edge) =>
+        list.append(
+            node(
+                'li',
+                `${names.get(edge.source) || edge.source} cites ${names.get(edge.target) || edge.target}`,
+            ),
+        ),
+    );
+}
+async function selectPaper(paper) {
+    state.selectedId = paper.id;
+    state.readerMode = 'paper';
+    renderResults();
+    renderLibrary();
+    renderReader();
+    const contextRun = ++state.contextRun;
+    $('citation-context-content').replaceChildren(node('p', 'Loading citation context…', 'muted'));
+    try {
+        const data = await request('citation-context', { doi: paper.doi, title: paper.title });
+        if (contextRun !== state.contextRun) return;
+        const container = $('citation-context-content');
+        container.replaceChildren();
+        for (const [field, title] of [
+            ['supporting', 'Supporting'],
+            ['contradicting', 'Conflicting'],
+            ['mentioning', 'Mentioning'],
+        ]) {
+            const values = Array.isArray(data[field]) ? data[field] : [];
+            const group = node('div', '', 'citation-group');
+            group.append(node('h4', `${title} (${values.length})`));
+            if (!values.length) group.append(node('p', 'No annotated context available.'));
+            values.slice(0, 5).forEach((item) => group.append(node('p', item.context)));
+            container.append(group);
+        }
+    } catch (error) {
+        if (contextRun === state.contextRun)
+            $('citation-context-content').replaceChildren(
+                node('p', `Citation context unavailable: ${error.message}`, 'muted'),
+            );
+    }
+}
+function renderReader() {
+    const container = $('reader-source-content');
+    container.replaceChildren();
+    if (state.readerMode === 'pdf' && state.pdf) {
+        $('reader-source-title').textContent = state.pdf.name;
+        $('reader-source-badge').textContent = 'Extracted PDF text';
+        container.append(
+            node(
+                'p',
+                'Text extraction may omit formatting, images, or mathematical notation.',
+                'muted',
+            ),
+        );
+        state.pdf.chunks.forEach((chunk) => container.append(node('p', chunk)));
+        return;
+    }
+    const paper =
+        state.papers.find((item) => item.id === state.selectedId) ||
+        state.library.find((item) => item.id === state.selectedId);
+    $('reader-source-title').textContent = 'Source details';
+    $('reader-source-badge').textContent = paper ? 'Abstract' : 'No source selected';
+    if (!paper) {
+        container.append(
+            node(
+                'p',
+                'Select a paper in Discover, or upload an academic PDF. Its text will appear here beside your research assistant.',
+            ),
+        );
+        return;
+    }
+    container.append(
+        node('h3', paper.title),
+        node('p', `${(paper.authors || []).join(', ')} · ${paper.year || 'Year unknown'}`, 'muted'),
+        node('p', paper.abstract || 'No abstract available.'),
+    );
+    const source = node('a', 'Read the original source');
+    source.href = paperUrl(paper);
+    source.target = '_blank';
+    source.rel = 'noopener noreferrer';
+    container.append(source);
+    if (state.pdf) {
+        const back = node('button', 'Return to uploaded PDF', 'button button-secondary');
+        back.addEventListener('click', () => {
+            state.readerMode = 'pdf';
+            renderReader();
+        });
+        container.append(back);
+    }
+}
+function renderBrief() {
+    const container = $('brief-summary');
+    container.replaceChildren();
+    if (!state.papers.length) {
+        container.append(
+            node('p', 'Your synthesis and sources will appear after a search.', 'muted'),
+        );
+        return;
+    }
+    container.append(
+        node('h3', state.query),
+        node(
+            'p',
+            state.consensus?.summaryText ||
+                'Synthesis unavailable. Review the source papers directly.',
+        ),
+    );
+    const list = node('ul');
+    state.papers.forEach((paper) => {
+        const entry = node('li');
+        const link = node('a', `${paper.title} (${paper.year || 'undated'})`);
+        link.href = paperUrl(paper);
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        entry.append(link);
+        list.append(entry);
+    });
+    container.append(list);
+    $('research-notes').value = state.notes || '';
+}
+async function search(query) {
+    query = String(query).trim();
+    if (!query) return;
+    state.controller?.abort();
+    state.controller = new AbortController();
+    const signal = state.controller.signal;
+    const run = ++state.run;
+    state.query = query;
+    if (state.title === 'Untitled research') state.title = query.slice(0, 70);
+    state.papers = [];
+    state.consensus = null;
+    state.matrix = [];
+    state.graph = { nodes: [], edges: [] };
+    state.selectedId = null;
+    ++state.contextRun;
+    projectHeading();
+    showView('discover');
+    $('search-input').value = query;
+    $('search-submit').textContent = 'Searching…';
+    status('search-status', 'Finding relevant publications…', 'pending');
+    status('matrix-status', 'Waiting for papers…', 'pending');
+    status('graph-status', 'Waiting for papers…', 'pending');
+    renderConsensus();
+    renderMatrix('Waiting for search results…');
+    renderEdges();
+    empty(
+        $('results-list'),
+        'Searching the literature…',
+        'Finding papers relevant to your question.',
+        'magnifying-glass',
+    );
+    try {
+        const data = await request('search', { query }, signal);
+        if (run !== state.run) return;
+        state.papers = Array.isArray(data.papers)
+            ? data.papers.filter(
+                  (paper) =>
+                      paper && typeof paper.id === 'string' && typeof paper.title === 'string',
+              )
+            : [];
+        state.selectedId = state.papers[0]?.id || null;
+        renderResults();
+        renderReader();
+        renderConsensus();
+        persist();
+        if (!state.papers.length) {
+            status('search-status', 'No matching papers found. Try a broader question.');
+            status('matrix-status');
+            status('graph-status');
+            renderMatrix('No papers to compare. Try another search.');
+            return;
+        }
+        status(
+            'search-status',
+            `${state.papers.length} papers found · preparing synthesis, comparison, and citations…`,
+            'pending',
+        );
+        const papers = [...state.papers];
+        const tasks = [
+            request('consensus', { query, papers }, signal)
+                .then((result) => {
+                    if (run !== state.run) return;
+                    state.consensus = result;
+                    state.papers.forEach((paper) => {
+                        paper.consensusStance = result.paperStances?.[paper.id];
+                    });
+                    renderConsensus();
+                    renderResults();
+                    persist();
+                })
+                .catch((error) => {
+                    if (run === state.run && !signal.aborted)
+                        $('consensus-summary-text').textContent =
+                            `Synthesis unavailable: ${error.message}. You can still inspect the source papers.`;
+                }),
+            request('compare', { papers }, signal)
+                .then((result) => {
+                    if (run !== state.run) return;
+                    state.matrix = Array.isArray(result.matrix) ? result.matrix : [];
+                    renderMatrix();
+                    status(
+                        'matrix-status',
+                        state.matrix.some((row) =>
+                            String(row.limitations).includes('Requires Gemini'),
+                        )
+                            ? 'Metadata fallback · configure Gemini for study extraction.'
+                            : `${state.matrix.length} studies · verify extracted details against their sources.`,
+                    );
+                    persist();
+                })
+                .catch((error) => {
+                    if (run === state.run && !signal.aborted) {
+                        renderMatrix('Comparison unavailable. Your paper list is still available.');
+                        status('matrix-status', error.message, 'error');
+                    }
+                }),
+            request('network-graph', { query, papers }, signal)
+                .then((result) => {
+                    if (run !== state.run) return;
+                    state.graph = {
+                        nodes: Array.isArray(result.nodes) ? result.nodes : [],
+                        edges: Array.isArray(result.edges) ? result.edges : [],
+                    };
+                    renderEdges();
+                    renderGraph();
+                    status(
+                        'graph-status',
+                        `${state.graph.nodes.length} papers · ${state.graph.edges.length} citation relationships`,
+                    );
+                    persist();
+                })
+                .catch((error) => {
+                    if (run === state.run && !signal.aborted)
+                        status('graph-status', error.message, 'error');
+                }),
+        ];
+        await Promise.allSettled(tasks);
+        if (run !== state.run) return;
+        status(
+            'search-status',
+            `${state.papers.length} papers found. Review the sources before drawing conclusions.`,
+        );
+        renderBrief();
+    } catch (error) {
+        if (run === state.run && !signal.aborted) {
+            status(
+                'search-status',
+                error.name === 'TimeoutError'
+                    ? 'Search timed out. Please try again.'
+                    : error.message,
+                'error',
+            );
+            empty(
+                $('results-list'),
+                'The search could not finish.',
+                'Try again in a moment or check your provider settings.',
+                'warning-circle',
+            );
+            status('matrix-status');
+            status('graph-status');
+            renderMatrix();
+        }
+    } finally {
+        if (run === state.run) $('search-submit').textContent = 'Search papers';
+    }
+}
+function appendChat(sender, text) {
+    const message = node('div', text, `message ${sender}-message`);
+    $('chat-messages').append(message);
+    $('chat-messages').scrollTop = $('chat-messages').scrollHeight;
+    return message;
+}
+async function chat(event) {
+    event.preventDefault();
+    const message = $('chat-input').value.trim();
+    if (!message || $('chat-submit').disabled) return;
+    const projectId = state.id;
+    const chatRun = ++state.chatRun;
+    appendChat('user', message);
+    $('chat-input').value = '';
+    $('chat-submit').disabled = true;
+    const pending = appendChat('system', 'Reading your research…');
+    try {
+        const data = await request('pdf-chat', {
+            message,
+            chunks: state.pdf?.chunks || [],
+            searchResults: state.papers,
+        });
+        if (projectId === state.id && chatRun === state.chatRun)
+            appendChat(
+                'ai',
+                data.reply || 'No answer was returned. Please try a more specific question.',
+            );
+    } catch (error) {
+        if (projectId === state.id && chatRun === state.chatRun)
+            appendChat('ai', `The assistant could not answer: ${error.message}`);
+    } finally {
+        pending.remove();
+        if (chatRun === state.chatRun) $('chat-submit').disabled = false;
+    }
+}
+async function upload(file) {
+    if (!file) return;
+    if (!(file.type === 'application/pdf' || (!file.type && /\.pdf$/i.test(file.name)))) {
+        toast('Please choose a PDF document.');
+        return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+        toast('Please choose a PDF smaller than 10 MB.');
+        return;
+    }
+    showView('reader');
+    const documentRun = ++state.documentRun;
+    status('pdf-status', `Reading ${file.name}…`, 'pending');
+    const body = new FormData();
+    body.append('pdf', file);
+    try {
+        const data = await request('pdf-upload', body);
+        if (documentRun !== state.documentRun) return;
+        state.pdf = {
+            name: file.name,
+            chunks: Array.isArray(data.chunks) ? data.chunks : [],
+            formulas: Array.isArray(data.formulas) ? data.formulas : [],
+        };
+        state.readerMode = 'pdf';
+        $('clear-pdf-btn').hidden = false;
+        ++state.contextRun;
+        renderReader();
+        $('citation-context-content').replaceChildren(
+            node('p', 'Citation context applies to selected online papers.', 'muted'),
+        );
+        renderFormulas();
+        status(
+            'pdf-status',
+            `${file.name} · ${state.pdf.chunks.length} text chunks available${data.chunkCount > state.pdf.chunks.length ? ` of ${data.chunkCount} extracted (document truncated)` : ''}. PDF text stays in this tab.`,
+        );
+        appendChat('system', `Uploaded ${file.name}. You can now ask about this document.`);
+    } catch (error) {
+        if (documentRun === state.documentRun)
+            status('pdf-status', `Could not read this PDF: ${error.message}`, 'error');
+    } finally {
+        $('pdf-file-input').value = '';
+    }
+}
+function renderFormulas() {
+    const container = $('formula-list');
+    container.replaceChildren();
+    if (!state.pdf?.formulas.length) {
+        container.append(
+            node(
+                'p',
+                'No dollar-delimited formulas detected. You can paste an equation below.',
+                'muted',
+            ),
+        );
+        return;
+    }
+    state.pdf.formulas.forEach((formula) => {
+        const button = node('button', formula.equation, 'formula-chip');
+        button.addEventListener('click', () => explain(formula.equation, formula.context));
+        container.append(button);
+    });
+}
+async function explain(equation, context = '') {
+    if (!equation.trim()) return;
+    const mathRun = ++state.mathRun;
+    $('formula-explanation').hidden = false;
+    $('selected-formula-text').textContent = equation;
+    $('selected-formula-desc').textContent = 'Explaining this equation…';
+    try {
+        const data = await request('pdf-explain-math', { equation, context });
+        if (mathRun !== state.mathRun) return;
+        $('selected-formula-desc').textContent = String(data.breakdown).includes(
+            'Requires Gemini API Key',
+        )
+            ? 'Configure a Gemini key in Settings for an explanation of this equation.'
+            : `Variables & purpose\n${data.breakdown || 'No breakdown returned.'}\n\nPhysical analogy\n${data.analogy || 'No analogy returned.'}`;
+    } catch (error) {
+        if (mathRun === state.mathRun)
+            $('selected-formula-desc').textContent = `Explanation unavailable: ${error.message}`;
+    }
+}
+function openSettings(byok = false) {
+    $('gemini-key-input').value = state.key;
+    $('groq-key-input').value = state.groqKey;
+    $('remember-key').checked = Boolean(read('evidara_gemini_key', read('gemini_key')));
+    const mode = byok ? 'byok' : state.keyMode;
+    document.querySelector(
+        `[name="key-mode"][value="${mode === 'byok' ? 'byok' : 'background'}"]`,
+    ).checked = true;
+    $('byok-fields').hidden = mode !== 'byok';
+    $('settings-dialog').showModal();
+}
+function saveSettings(event) {
+    event.preventDefault();
+    state.keyMode = document.querySelector('[name="key-mode"]:checked').value;
+    state.key = $('gemini-key-input').value.trim();
+    state.groqKey = $('groq-key-input').value.trim();
+    try {
+        localStorage.setItem('evidara_key_mode', state.keyMode);
+        for (const key of ['gemini_key', 'groq_key', 'evidara_gemini_key', 'evidara_groq_key'])
+            localStorage.removeItem(key);
+        if ($('remember-key').checked) {
+            if (state.key) localStorage.setItem('evidara_gemini_key', state.key);
+            if (state.groqKey) localStorage.setItem('evidara_groq_key', state.groqKey);
+        }
+    } catch {
+        toast('Settings apply to this tab; browser storage is unavailable.');
+    }
+    $('settings-dialog').close();
+    toast('Provider settings saved.');
+}
+function renderProjects() {
+    const container = $('project-list');
+    container.replaceChildren();
+    if (!projects.length) {
+        container.append(
+            node('p', 'Your first project will be saved when you start researching.', 'muted'),
+        );
+        return;
+    }
+    projects.forEach((project) => {
+        const entry = node('div', '', 'project-entry');
+        const open = node('button', project.title);
+        open.append(
+            node(
+                'small',
+                `${project.papers?.length || 0} papers · ${new Date(project.updatedAt || project.createdAt).toLocaleDateString()}`,
+            ),
+        );
+        open.addEventListener('click', () => {
+            loadProject(project);
+            $('projects-dialog').close();
+        });
+        const remove = node('button', '', 'icon-button');
+        remove.append(icon('trash'));
+        remove.setAttribute('aria-label', `Delete project: ${project.title}`);
+        remove.addEventListener('click', () => {
+            if (!confirm(`Delete "${project.title}" from this browser?`)) return;
+            const next = projects.filter((item) => item.id !== project.id);
+            try {
+                localStorage.setItem('evidara_projects', JSON.stringify(next));
+                projects = next;
+                if (state.id === project.id) {
+                    localStorage.removeItem('evidara_active_project');
+                    loadProject(blankProject(), false);
+                    $('save-status').textContent = 'New project';
+                }
+                renderProjects();
+                toast('Project deleted from this browser.');
+            } catch {
+                toast('Could not delete the saved project.');
+            }
+        });
+        entry.append(open, remove);
+        container.append(entry);
+    });
+}
+function loadProject(project, save = true) {
+    state.controller?.abort();
+    ++state.run;
+    ++state.contextRun;
+    ++state.documentRun;
+    ++state.chatRun;
+    ++state.mathRun;
+    Object.assign(state, blankProject(), project);
+    state.selectedId = state.papers[0]?.id || null;
+    state.pdf = null;
+    $('clear-pdf-btn').hidden = true;
+    state.readerMode = 'paper';
+    if (state.network) {
+        state.network.destroy();
+        state.network = null;
+    }
+    $('search-input').value = state.query;
+    $('search-submit').textContent = 'Search papers';
+    $('research-notes').value = state.notes || '';
+    $('chat-submit').disabled = false;
+    $('chat-messages').replaceChildren(
+        node(
+            'div',
+            'Ask about this project’s papers, or upload a PDF for document questions.',
+            'message ai-message',
+        ),
+    );
+    $('formula-explanation').hidden = true;
+    status('pdf-status');
+    status('search-status');
+    status('matrix-status');
+    status('graph-status');
+    $('citation-context-content').replaceChildren(
+        node('p', 'Select a paper to inspect its citation context.', 'muted'),
+    );
+    projectHeading();
+    renderResults();
+    renderLibrary();
+    renderConsensus();
+    renderMatrix();
+    renderReader();
+    renderFormulas();
+    renderEdges();
+    renderBrief();
+    showView('discover');
+    if (save) persist();
+}
+function csvCell(value) {
+    const text = String(value ?? '');
+    return `"${(/^[\s]*[=+@-]/.test(text) ? "'" : '') + text.replace(/"/g, '""')}"`;
+}
+function matrixCsv() {
+    const fields = ['title', 'datasetSize', 'methodology', 'outcomes', 'limitations'];
+    return [
+        fields.join(','),
+        ...state.matrix.map((row) => fields.map((field) => csvCell(row[field])).join(',')),
+    ].join('\n');
+}
+function matrixMarkdown() {
+    const fields = ['title', 'datasetSize', 'methodology', 'outcomes', 'limitations'];
+    const clean = (value) =>
+        String(value ?? 'Not reported')
+            .replace(/\|/g, '\\|')
+            .replace(/\r?\n/g, ' ');
+    return `# Evidara Study Comparison\n\n| Publication | Dataset size | Methodology | Outcomes | Limitations |\n|---|---|---|---|---|\n${state.matrix.map((row) => `| ${fields.map((field) => clean(row[field])).join(' | ')} |`).join('\n')}`;
+}
+function exportResearch(format) {
+    const scope = $('export-scope').value;
+    const papers = scope === 'library' ? state.library : state.papers;
+    if (
+        (scope === 'matrix' && !state.matrix.length) ||
+        (scope === 'graph' && !state.graph.nodes.length) ||
+        (['research', 'library'].includes(scope) && !papers.length)
+    ) {
+        toast('There is no content to export yet.');
+        return;
+    }
+    let content;
+    let type = 'text/plain';
+    if (scope === 'matrix')
+        content =
+            format === 'csv'
+                ? matrixCsv()
+                : format === 'md'
+                  ? matrixMarkdown()
+                  : JSON.stringify({ query: state.query, matrix: state.matrix }, null, 2);
+    else if (scope === 'graph' && format === 'json')
+        content = JSON.stringify(
+            {
+                query: state.query,
+                nodes: state.graph.nodes,
+                links: state.graph.edges,
+                edges: state.graph.edges,
+            },
+            null,
+            2,
+        );
+    else if (format === 'md')
+        content = `${exportToMarkdown(state.query, state.consensus, papers)}${state.notes ? `\n## Research Notes\n${state.notes}\n` : ''}`;
+    else if (format === 'csv') content = exportToCsv(papers);
+    else if (format === 'bib') content = exportToBibTeX(papers);
+    else {
+        const data = JSON.parse(exportToJson(state.query, state.consensus, papers));
+        data.schemaVersion = '1.0';
+        data.project = { id: state.id, title: state.title };
+        data.notes = state.notes;
+        data.matrix = state.matrix;
+        data.graph = state.graph;
+        content = JSON.stringify(data, null, 2);
+    }
+    type = {
+        json: 'application/json',
+        csv: 'text/csv',
+        md: 'text/markdown',
+        bib: 'application/x-bibtex',
+    }[format];
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Evidara_${scope}_${state.query.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 70) || 'research'}.${format}`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Export downloaded.');
+}
+function exportScope(scope) {
+    showView('brief');
+    $('export-scope').value = scope;
+    updateExportOptions();
+    $('export-scope').focus();
+}
+function updateExportOptions() {
+    document.querySelectorAll('[data-export]').forEach((button) => {
+        const scope = $('export-scope').value;
+        button.disabled =
+            (scope === 'graph' && !['json', 'bib'].includes(button.dataset.export)) ||
+            (scope === 'matrix' && button.dataset.export === 'bib');
+    });
+}
+
+$('search-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    search($('search-input').value);
+});
+document
+    .querySelectorAll('[data-query]')
+    .forEach((button) => button.addEventListener('click', () => search(button.dataset.query)));
+document.querySelectorAll('[data-view]').forEach((link) =>
+    link.addEventListener('click', (event) => {
+        event.preventDefault();
+        showView(link.dataset.view);
+    }),
+);
+window.addEventListener('hashchange', () => showView(location.hash.slice(1), false));
+window.addEventListener('popstate', () => showView(location.hash.slice(1), false));
+$('paper-sort').addEventListener('change', renderResults);
+document.querySelectorAll('[data-graph-action]').forEach((button) =>
+    button.addEventListener('click', () => {
+        if (!state.network) {
+            toast('Search for papers to create a citation map first.');
+            return;
+        }
+        if (button.dataset.graphAction === 'fit') fitGraph();
+        else
+            state.network.moveTo({
+                scale:
+                    state.network.getScale() * (button.dataset.graphAction === 'in' ? 1.25 : 0.8),
+                animation: false,
+            });
+    }),
+);
+$('menu-toggle').addEventListener('click', () =>
+    setNav(!document.body.classList.contains('nav-open')),
+);
+$('sidebar-scrim').addEventListener('click', () => setNav(false));
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') setNav(false);
+});
+matchMedia('(max-width: 760px)').addEventListener('change', () => setNav(false));
+for (const id of ['settings-btn', 'profile-settings-btn', 'footer-settings-btn'])
+    $(id).addEventListener('click', () => openSettings());
+$('byok-btn').addEventListener('click', () => openSettings(true));
+document
+    .querySelectorAll('[data-close]')
+    .forEach((button) => button.addEventListener('click', () => $(button.dataset.close).close()));
+document.querySelectorAll('[name="key-mode"]').forEach((radio) =>
+    radio.addEventListener('change', () => {
+        $('byok-fields').hidden = radio.value !== 'byok' || !radio.checked;
+    }),
+);
+$('settings-form').addEventListener('submit', saveSettings);
+$('clear-keys-btn').addEventListener('click', () => {
+    state.key = '';
+    state.groqKey = '';
+    for (const key of ['gemini_key', 'groq_key', 'evidara_gemini_key', 'evidara_groq_key']) {
+        try {
+            localStorage.removeItem(key);
+        } catch {
+            /* In-memory keys still cleared. */
+        }
+    }
+    $('gemini-key-input').value = '';
+    $('groq-key-input').value = '';
+    $('remember-key').checked = false;
+    toast('Saved and active keys cleared.');
+});
+for (const id of ['upload-pdf-btn', 'reader-upload-btn'])
+    $(id).addEventListener('click', () => $('pdf-file-input').click());
+$('pdf-file-input').addEventListener('change', (event) => upload(event.target.files[0]));
+$('clear-pdf-btn').addEventListener('click', () => {
+    ++state.documentRun;
+    ++state.mathRun;
+    ++state.chatRun;
+    state.pdf = null;
+    state.readerMode = 'paper';
+    $('clear-pdf-btn').hidden = true;
+    $('formula-explanation').hidden = true;
+    $('chat-submit').disabled = false;
+    $('chat-messages').replaceChildren(
+        node(
+            'div',
+            'PDF removed. You can still ask about this project’s search results.',
+            'message ai-message',
+        ),
+    );
+    renderReader();
+    renderFormulas();
+    status('pdf-status', 'PDF text removed from this tab.');
+});
+$('chat-nav-btn').addEventListener('click', () => {
+    showView('reader');
+    $('chat-input').focus();
+});
+$('equations-nav-btn').addEventListener('click', () => {
+    showView('reader');
+    $('equations-section').scrollIntoView({ behavior: 'smooth' });
+    $('equation-input').focus({ preventScroll: true });
+});
+$('chat-form').addEventListener('submit', chat);
+$('chat-input').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        $('chat-form').requestSubmit();
+    }
+});
+$('equation-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    explain($('equation-input').value.trim());
+});
+$('project-button').addEventListener('click', () => {
+    renderProjects();
+    $('projects-dialog').showModal();
+});
+$('project-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const title = $('project-title-input').value.trim();
+    if (!title) return;
+    persist();
+    loadProject(blankProject(title));
+    $('project-title-input').value = '';
+    $('projects-dialog').close();
+    toast('Project created in this browser.');
+});
+$('save-project-btn').addEventListener('click', () =>
+    toast(
+        persist()
+            ? 'Project saved in this browser.'
+            : 'Project could not be saved. Browser storage is unavailable.',
+    ),
+);
+$('research-notes').addEventListener('input', () => {
+    state.notes = $('research-notes').value;
+    persist();
+});
+for (const id of ['sidebar-export-btn', 'export-brief-btn'])
+    $(id).addEventListener('click', () => exportScope('research'));
+$('library-export-btn').addEventListener('click', () => exportScope('library'));
+$('matrix-export-btn').addEventListener('click', () => exportScope('matrix'));
+$('graph-export-btn').addEventListener('click', () => exportScope('graph'));
+document
+    .querySelectorAll('[data-export]')
+    .forEach((button) =>
+        button.addEventListener('click', () => exportResearch(button.dataset.export)),
+    );
+$('export-scope').addEventListener('change', updateExportOptions);
+projectHeading();
+renderLibrary();
+renderConsensus();
+renderMatrix();
+renderReader();
+renderEdges();
+renderBrief();
+if (state.papers.length) {
+    state.selectedId = state.papers[0].id;
+    renderResults();
+    renderReader();
+}
+$('search-input').value = state.query;
+$('research-notes').value = state.notes || '';
+showView(location.hash.slice(1) || 'discover', false);

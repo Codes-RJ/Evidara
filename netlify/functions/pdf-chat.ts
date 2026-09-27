@@ -63,7 +63,7 @@ export default async (req: Request, context: Context) => {
 
         // Run Agentic loop (Max 2 tool iterations to stay within Netlify's 10s timeout limit)
         while (agentStep <= 2) {
-            const agentPrompt = `You are a research assistant agent called AbstractiFy. You have access to an uploaded PDF and a set of online academic papers.
+            const agentPrompt = `You are a research assistant agent called Evidara. You have access to an uploaded PDF and a set of online academic papers.
             
 Conversation history:
 ${conversationHistory}
