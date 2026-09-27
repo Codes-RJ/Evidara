@@ -51,6 +51,7 @@ const blankProject = (title = 'Untitled research') => ({
     id: uid(),
     title,
     query: '',
+    resultLimit: 25,
     papers: [],
     library: [],
     consensus: null,
@@ -94,6 +95,7 @@ function persist() {
             'id',
             'title',
             'query',
+            'resultLimit',
             'papers',
             'library',
             'consensus',
@@ -124,23 +126,68 @@ function headers(json = true) {
 }
 async function request(route, body, signal) {
     const timeout = AbortSignal.timeout(90000);
-    const response = await fetch(`/api/${route}`, {
+    const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    const options = {
         method: 'POST',
         headers: headers(!(body instanceof FormData)),
         body: body instanceof FormData ? body : JSON.stringify(body),
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    });
-    let data;
-    try {
-        data = await response.json();
-    } catch {
-        throw new Error('The research service is unavailable. Please try again.');
+        signal: requestSignal,
+    };
+    // Search is read-only: recover one cold-start/gateway failure within one submission.
+    for (let attempt = 0; attempt < (route === 'search' ? 2 : 1); attempt++) {
+        requestSignal.throwIfAborted();
+        let response;
+        try {
+            response = await fetch(`/api/${route}`, options);
+        } catch (error) {
+            if (
+                route === 'search' &&
+                attempt === 0 &&
+                !requestSignal.aborted &&
+                error instanceof TypeError
+            ) {
+                await new Promise((done) => setTimeout(done, 500));
+                continue;
+            }
+            throw error;
+        }
+        const retryAfterSeconds = Number(response.headers.get('Retry-After') || 0);
+        if (
+            route === 'search' &&
+            attempt === 0 &&
+            !requestSignal.aborted &&
+            [408, 429, 500, 502, 503, 504].includes(response.status) &&
+            Number.isFinite(retryAfterSeconds) &&
+            retryAfterSeconds <= 1
+        ) {
+            await response.body?.cancel();
+            await new Promise((done) => setTimeout(done, Math.max(500, retryAfterSeconds * 1000)));
+            continue;
+        }
+        let data;
+        try {
+            data = await response.json();
+        } catch {
+            if (route === 'search' && attempt === 0 && !requestSignal.aborted) {
+                await new Promise((done) => setTimeout(done, 500));
+                continue;
+            }
+            throw new Error('The research service is unavailable. Please try again.');
+        }
+        if (!response.ok)
+            throw new Error(
+                String(data?.message || data?.error || `Request failed (${response.status})`),
+            );
+        if (route === 'search' && !Array.isArray(data?.papers)) {
+            if (attempt === 0 && !requestSignal.aborted) {
+                await new Promise((done) => setTimeout(done, 500));
+                continue;
+            }
+            throw new Error('Search returned an invalid response. Please try again.');
+        }
+        return data;
     }
-    if (!response.ok)
-        throw new Error(
-            String(data.message || data.error || `Request failed (${response.status})`),
-        );
-    return data;
+    throw new Error('The research service is unavailable. Please try again.');
 }
 function projectHeading() {
     $('project-name').textContent = state.title;
@@ -557,6 +604,7 @@ async function search(query) {
     const signal = state.controller.signal;
     const run = ++state.run;
     state.query = query;
+    state.resultLimit = Number($('search-limit').value);
     if (state.title === 'Untitled research') state.title = query.slice(0, 70);
     state.papers = [];
     state.consensus = null;
@@ -581,7 +629,7 @@ async function search(query) {
         'magnifying-glass',
     );
     try {
-        const data = await request('search', { query }, signal);
+        const data = await request('search', { query, limit: state.resultLimit }, signal);
         if (run !== state.run) return;
         state.papers = Array.isArray(data.papers)
             ? data.papers.filter(
@@ -595,7 +643,17 @@ async function search(query) {
         renderConsensus();
         persist();
         if (!state.papers.length) {
-            status('search-status', 'No matching papers found. Try a broader question.');
+            if (data.emptyReason === 'NO_USABLE_ABSTRACTS') {
+                status(
+                    'search-status',
+                    'Matching records were found, but none supplied a usable abstract for analysis.',
+                );
+                empty(
+                    $('results-list'),
+                    'No abstracts available for this search.',
+                    'Try a broader phrase or another topic. These providers did not supply abstracts for the matching records.',
+                );
+            } else status('search-status', 'No matching papers found. Try a broader question.');
             status('matrix-status');
             status('graph-status');
             renderMatrix('No papers to compare. Try another search.');
@@ -904,6 +962,9 @@ function loadProject(project, save = true) {
         state.network = null;
     }
     $('search-input').value = state.query;
+    $('search-limit').value = String(
+        [10, 25, 50].includes(state.resultLimit) ? state.resultLimit : 25,
+    );
     $('search-submit').textContent = 'Search papers';
     $('research-notes').value = state.notes || '';
     $('chat-submit').disabled = false;
@@ -1186,5 +1247,6 @@ if (state.papers.length) {
     renderReader();
 }
 $('search-input').value = state.query;
+$('search-limit').value = String([10, 25, 50].includes(state.resultLimit) ? state.resultLimit : 25);
 $('research-notes').value = state.notes || '';
 showView(location.hash.slice(1) || 'discover', false);

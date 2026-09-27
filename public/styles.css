@@ -403,6 +403,26 @@ main {
     font-size: 12px;
     flex-wrap: wrap;
 }
+.search-options {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--text);
+}
+.search-options select {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 10px;
+    background: #fff;
+    color: var(--ink);
+}
+.search-options span {
+    color: var(--muted);
+}
 .search-examples button {
     padding: 7px 13px;
     border: 0;

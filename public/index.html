@@ -136,6 +136,15 @@
                                     Search papers
                                 </button>
                             </form>
+                            <div class="search-options">
+                                <label for="search-limit">Paper results</label>
+                                <select id="search-limit">
+                                    <option value="10">Up to 10</option>
+                                    <option value="25" selected>Up to 25</option>
+                                    <option value="50">Up to 50</option>
+                                </select>
+                                <span>Larger searches take more time and AI usage.</span>
+                            </div>
                             <div class="search-examples">
                                 <span>Try:</span
                                 ><button data-query="retrieval augmented generation">

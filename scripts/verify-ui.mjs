@@ -109,6 +109,38 @@ try {
         requests.push({ name, body, headers: request.headers() });
         let data;
         if (name === 'search') {
+            if (body.query === 'rate limit case') {
+                await route.fulfill({
+                    status: 503,
+                    headers: { 'Retry-After': '60' },
+                    json: {
+                        message:
+                            'Paper search providers are rate-limited. Please wait before trying again.',
+                        code: 'SEARCH_RATE_LIMITED',
+                    },
+                });
+                return;
+            }
+            if (body.query === 'missing abstracts') {
+                await route.fulfill({ json: { papers: [], emptyReason: 'NO_USABLE_ABSTRACTS' } });
+                return;
+            }
+            if (
+                body.query === 'Open Knowledge Format' &&
+                requests.filter((r) => r.name === 'search' && r.body?.query === body.query)
+                    .length === 1
+            ) {
+                await route.fulfill({
+                    status: 502,
+                    contentType: 'text/html',
+                    body: '<html>Gateway temporarily unavailable</html>',
+                });
+                return;
+            }
+            if (body.query === 'malformed search') {
+                await route.fulfill({ json: { message: 'Unexpected proxy response' } });
+                return;
+            }
             if (body.query === 'error case') {
                 await route.fulfill({
                     status: 503,
@@ -169,7 +201,22 @@ try {
             () => document.querySelector('#search-submit').textContent === 'Search papers',
         );
     };
+    await search('Open Knowledge Format');
+    assert.equal(
+        await page.locator('#results-list .paper-row').count(),
+        3,
+        'One user submission recovers a cold gateway failure',
+    );
+    assert.equal(
+        requests.filter((r) => r.name === 'search' && r.body?.query === 'Open Knowledge Format')
+            .length,
+        2,
+    );
     await search('Does exercise slow cognitive decline?');
+    assert.equal(requests.findLast((r) => r.name === 'search').body.limit, 25);
+    await page.locator('#search-limit').selectOption('50');
+    await search('Does exercise slow cognitive decline?');
+    assert.equal(requests.findLast((r) => r.name === 'search').body.limit, 50);
     assert.equal(await page.locator('#results-list .paper-row').count(), 3);
     await page.screenshot({ path: `${output}/evidara-discover-desktop.png`, fullPage: true });
     await page.locator('#paper-sort').selectOption('recent');
@@ -277,15 +324,36 @@ try {
     await page.locator('#project-form').evaluate((form) => form.requestSubmit());
     assert.equal(await page.locator('#project-name').textContent(), 'Second project');
     await page.locator('#project-button').click();
-    await page.locator('.project-entry > button').filter({ hasText: 'Does exercise' }).click();
+    await page
+        .locator('.project-entry > button')
+        .filter({ hasText: 'Open Knowledge Format' })
+        .click();
     await page.reload();
+    assert.equal(
+        await page.locator('#search-limit').inputValue(),
+        '50',
+        'Project retains result limit',
+    );
     await page.locator('[data-view="brief"]').first().click();
     assert.equal(await page.locator('#research-notes').inputValue(), 'Important working note');
     assert.equal(await page.locator('#formula-list .formula-chip').count(), 0, 'PDF not persisted');
     await search('empty case');
     assert.equal(await page.locator('#results-list .paper-row').count(), 0);
+    await search('missing abstracts');
+    assert.match(await page.locator('#search-status').textContent(), /usable abstract/);
+    assert.ok(!(await page.locator('#results-list').textContent()).includes('No matching papers'));
+    await search('rate limit case');
+    assert.match(await page.locator('#search-status').textContent(), /rate-limited/);
+    assert.equal(
+        requests.filter((r) => r.name === 'search' && r.body?.query === 'rate limit case').length,
+        1,
+        'Respect server cooldown without an immediate repeat request',
+    );
     await search('error case');
     assert.match(await page.locator('#search-status').textContent(), /temporarily unavailable/);
+    assert.ok(!(await page.locator('#search-status').textContent()).includes('No matching papers'));
+    await search('malformed search');
+    assert.match(await page.locator('#search-status').textContent(), /invalid response/);
     await search('inert source');
     assert.equal(await page.locator('#results-list img, #results-list script').count(), 0);
     assert.equal(await page.evaluate(() => window.injection), undefined);

@@ -140,7 +140,7 @@ export async function callGemini(
 }
 
 // Raw HTTP client for Gemini Embeddings API
-export async function callGeminiEmbedding(text: string, apiKey: string): Promise<number[]> {
+export async function callGeminiEmbedding(text: string, apiKey: string, signal?: AbortSignal): Promise<number[]> {
     if (!apiKey) {
         throw new Error('Gemini API key is required for embeddings.');
     }
@@ -161,6 +161,7 @@ export async function callGeminiEmbedding(text: string, apiKey: string): Promise
             'x-goog-api-key': apiKey,
         },
         body: JSON.stringify(body),
+        signal,
     });
 
     if (!response.ok) {
