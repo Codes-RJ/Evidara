@@ -1,5 +1,5 @@
 /**
- * AbstractiFy Export Suite Utilities
+ * Evidara Export Suite Utilities
  * Supports exporting search results, consensus metrics, and matrices to Markdown, CSV, JSON, and BibTeX.
  */
 
@@ -11,26 +11,32 @@
  * @returns {string}
  */
 export function exportToMarkdown(query, consensus, papers) {
-    let md = `# 🔬 AbstractiFy Research Summary\n\n`;
+    let md = `# Evidara Research Summary\n\n`;
     md += `**Query:** ${query || 'N/A'}\n`;
     md += `**Date:** ${new Date().toISOString().split('T')[0]}\n\n`;
 
     if (consensus) {
-        md += `## 📊 Consensus Overview\n\n`;
-        md += `- **Supports:** ${consensus.supports ?? 0}%\n`;
-        md += `- **Neutral / Inconclusive:** ${consensus.neutral ?? 0}%\n`;
-        md += `- **Contradicts:** ${consensus.contradicts ?? 0}%\n\n`;
-        if (consensus.summary) {
-            md += `### Summary\n${consensus.summary}\n\n`;
+        md += `## Evidence Overview\n\n`;
+        if ('supportsCount' in consensus) {
+            md += `- **Supports:** ${consensus.supportsCount ?? 0} papers\n`;
+            md += `- **Mixed / Unclear:** ${consensus.neutralCount ?? 0} papers\n`;
+            md += `- **Conflicts:** ${consensus.contradictsCount ?? 0} papers\n\n`;
+            md += `Abstract-based stance across this sample, not scientific certainty.\n\n`;
+            if (consensus.summaryText) md += `### Summary\n${consensus.summaryText}\n\n`;
+        } else {
+            md += `- **Supports:** ${consensus.supports ?? 0}%\n`;
+            md += `- **Neutral / Inconclusive:** ${consensus.neutral ?? 0}%\n`;
+            md += `- **Contradicts:** ${consensus.contradicts ?? 0}%\n\n`;
+            if (consensus.summary) md += `### Summary\n${consensus.summary}\n\n`;
         }
     }
 
-    md += `## 📚 Publications Matrix (${papers.length})\n\n`;
+    md += `## Publications Matrix (${papers.length})\n\n`;
     md += `| Title | Authors | Year | Citations | Stance | DOI |\n`;
     md += `|---|---|---|---|---|---|\n`;
 
-    (papers || []).forEach(p => {
-        const authors = (p.authors && p.authors.length > 0) ? p.authors.join(', ') : 'Unknown';
+    (papers || []).forEach((p) => {
+        const authors = p.authors && p.authors.length > 0 ? p.authors.join(', ') : 'Unknown';
         const doi = p.doi ? `[${p.doi}](https://doi.org/${p.doi})` : 'N/A';
         const title = (p.title || '').replace(/\|/g, '\\|');
         const authorStr = authors.replace(/\|/g, '\\|');
@@ -47,7 +53,9 @@ export function exportToMarkdown(query, consensus, papers) {
  */
 function escapeCsv(field) {
     if (field === undefined || field === null) return '""';
-    const str = String(field).replace(/"/g, '""');
+    const raw = String(field);
+    const safe = typeof field === 'string' && /^\s*[=+@-]/.test(raw) ? `'${raw}` : raw;
+    const str = safe.replace(/"/g, '""');
     return `"${str}"`;
 }
 
@@ -58,7 +66,7 @@ function escapeCsv(field) {
  */
 export function exportToCsv(papers) {
     const headers = ['ID', 'Title', 'Authors', 'Year', 'Citations', 'Stance', 'DOI', 'Abstract'];
-    const rows = (papers || []).map(p => [
+    const rows = (papers || []).map((p) => [
         escapeCsv(p.id),
         escapeCsv(p.title),
         escapeCsv((p.authors || []).join('; ')),
@@ -66,10 +74,10 @@ export function exportToCsv(papers) {
         escapeCsv(p.citations ?? 0),
         escapeCsv(p.consensusStance || 'Neutral'),
         escapeCsv(p.doi || ''),
-        escapeCsv(p.abstract || '')
+        escapeCsv(p.abstract || ''),
     ]);
 
-    return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
 }
 
 /**
@@ -84,10 +92,10 @@ export function exportToJson(query, consensus, papers) {
         meta: {
             exportedAt: new Date().toISOString(),
             query: query || '',
-            paperCount: (papers || []).length
+            paperCount: (papers || []).length,
         },
         consensus: consensus || {},
-        papers: papers || []
+        papers: papers || [],
     };
 
     return JSON.stringify(exportData, null, 2);
@@ -99,30 +107,33 @@ export function exportToJson(query, consensus, papers) {
  * @returns {string}
  */
 export function exportToBibTeX(papers) {
-    return (papers || []).map((p, idx) => {
-        const citeKey = p.id ? p.id.replace(/[^a-zA-Z0-9]/g, '') : `paper${idx + 1}`;
-        const firstAuthor = (p.authors && p.authors.length > 0) ? p.authors[0].split(' ').pop() : 'Anonymous';
-        const year = p.year || new Date().getFullYear();
-        const bibKey = `${firstAuthor}${year}_${citeKey}`;
+    return (papers || [])
+        .map((p, idx) => {
+            const citeKey = p.id ? p.id.replace(/[^a-zA-Z0-9]/g, '') : `paper${idx + 1}`;
+            const firstAuthor =
+                p.authors && p.authors.length > 0 ? p.authors[0].split(' ').pop() : 'Anonymous';
+            const year = p.year || new Date().getFullYear();
+            const bibKey = `${firstAuthor}${year}_${citeKey}`;
 
-        let entry = `@article{${bibKey},\n`;
-        entry += `  title = {${p.title}},\n`;
-        if (p.authors && p.authors.length > 0) {
-            entry += `  author = {${p.authors.join(' and ')}},\n`;
-        }
-        if (p.year) {
-            entry += `  year = {${p.year}},\n`;
-        }
-        if (p.doi) {
-            entry += `  doi = {${p.doi}},\n`;
-        }
-        if (p.abstract) {
-            const cleanAbstract = p.abstract.replace(/\n/g, ' ');
-            entry += `  abstract = {${cleanAbstract}}\n`;
-        } else {
-            entry = entry.slice(0, -2) + '\n';
-        }
-        entry += `}`;
-        return entry;
-    }).join('\n\n');
+            let entry = `@article{${bibKey},\n`;
+            entry += `  title = {${p.title}},\n`;
+            if (p.authors && p.authors.length > 0) {
+                entry += `  author = {${p.authors.join(' and ')}},\n`;
+            }
+            if (p.year) {
+                entry += `  year = {${p.year}},\n`;
+            }
+            if (p.doi) {
+                entry += `  doi = {${p.doi}},\n`;
+            }
+            if (p.abstract) {
+                const cleanAbstract = p.abstract.replace(/\n/g, ' ');
+                entry += `  abstract = {${cleanAbstract}}\n`;
+            } else {
+                entry = entry.slice(0, -2) + '\n';
+            }
+            entry += `}`;
+            return entry;
+        })
+        .join('\n\n');
 }

@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-    exportToMarkdown,
-    exportToCsv,
-    exportToJson,
-    exportToBibTeX
-} from '../js/export.js';
+import { exportToMarkdown, exportToCsv, exportToJson, exportToBibTeX } from '../js/export.js';
 
 describe('public/js/export.js', () => {
     const samplePapers = [
@@ -16,7 +11,7 @@ describe('public/js/export.js', () => {
             abstract: 'An in-depth study of quantum algorithms. Line 2 of abstract.',
             doi: '10.1000/182',
             citations: 42,
-            consensusStance: 'Supports'
+            consensusStance: 'Supports',
         },
         {
             id: 'paper-2',
@@ -24,37 +19,73 @@ describe('public/js/export.js', () => {
             authors: [],
             year: undefined,
             abstract: '',
-            citations: 0
-        }
+            citations: 0,
+        },
     ];
 
     const sampleConsensus = {
         supports: 70,
         neutral: 20,
         contradicts: 10,
-        summary: 'Strong scientific consensus identified.'
+        summary: 'Strong scientific consensus identified.',
     };
 
     describe('exportToMarkdown', () => {
+        it('exports the current API stance counts and summary without treating counts as percentages', () => {
+            const md = exportToMarkdown(
+                'Exercise',
+                {
+                    supportsCount: 6,
+                    neutralCount: 3,
+                    contradictsCount: 1,
+                    summaryText: 'An abstract-based synthesis.',
+                },
+                samplePapers,
+            );
+            expect(md).toContain('**Supports:** 6 papers');
+            expect(md).toContain('**Mixed / Unclear:** 3 papers');
+            expect(md).toContain('**Conflicts:** 1 papers');
+            expect(md).toContain('An abstract-based synthesis.');
+            expect(md).not.toContain('6%');
+        });
         it('formats markdown with query, consensus, and paper table', () => {
             const md = exportToMarkdown('Quantum AI', sampleConsensus, samplePapers);
-            expect(md).toContain('# 🔬 AbstractiFy Research Summary');
+            expect(md).toContain('# Evidara Research Summary');
             expect(md).toContain('**Query:** Quantum AI');
             expect(md).toContain('- **Supports:** 70%');
             expect(md).toContain('Strong scientific consensus identified.');
-            expect(md).toContain('| Quantum Computing \\| Machine Learning | Alice Smith, Bob Jones | 2024 | 42 | Supports | [10.1000/182](https://doi.org/10.1000/182) |');
-            expect(md).toContain('| Classical Analysis of Neural Networks | Unknown | N/A | 0 | Neutral | N/A |');
+            expect(md).toContain(
+                '| Quantum Computing \\| Machine Learning | Alice Smith, Bob Jones | 2024 | 42 | Supports | [10.1000/182](https://doi.org/10.1000/182) |',
+            );
+            expect(md).toContain(
+                '| Classical Analysis of Neural Networks | Unknown | N/A | 0 | Neutral | N/A |',
+            );
         });
 
         it('handles null consensus and empty query gracefully', () => {
             const md = exportToMarkdown('', null, []);
             expect(md).toContain('**Query:** N/A');
-            expect(md).not.toContain('Consensus Overview');
-            expect(md).toContain('## 📚 Publications Matrix (0)');
+            expect(md).not.toContain('Evidence Overview');
+            expect(md).toContain('## Publications Matrix (0)');
         });
     });
 
     describe('exportToCsv', () => {
+        it('neutralizes spreadsheet formulas in source strings while preserving numbers', () => {
+            const csv = exportToCsv([
+                {
+                    title: '=HYPERLINK("https://example.com")',
+                    authors: [' @SUM(1)'],
+                    year: 2026,
+                    citations: -1,
+                    abstract: '+RUN()',
+                },
+            ]);
+            expect(csv).toContain('"\'=HYPERLINK');
+            expect(csv).toContain('"\' @SUM(1)"');
+            expect(csv).toContain('"\'+RUN()"');
+            expect(csv).toContain('"-1"');
+        });
         it('generates properly formatted CSV with escaped double quotes', () => {
             const csv = exportToCsv(samplePapers);
             const lines = csv.split('\n');
@@ -105,7 +136,9 @@ describe('public/js/export.js', () => {
             expect(bib).toContain('author = {Alice Smith and Bob Jones},');
             expect(bib).toContain('year = {2024},');
             expect(bib).toContain('doi = {10.1000/182},');
-            expect(bib).toContain('abstract = {An in-depth study of quantum algorithms. Line 2 of abstract.}');
+            expect(bib).toContain(
+                'abstract = {An in-depth study of quantum algorithms. Line 2 of abstract.}',
+            );
 
             expect(bib).toContain('@article{Anonymous');
             expect(bib).toContain('title = {Classical Analysis of Neural Networks}');
