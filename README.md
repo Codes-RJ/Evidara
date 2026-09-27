@@ -1,277 +1,61 @@
-# 🎓 AbstractiFy
+# Evidara
 
-> **De-jargonize research. Find consensus. Map the science.**
+Research with the evidence in view. Evidara is the new identity for Abstractify: a calm workspace for discovering papers, comparing studies, inspecting citations, and creating research briefs.
 
-[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen?style=flat-square&logo=netlify)](https://abstractify1.netlify.app)
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/vansh7nvc/Abstractify)
-[![MIT License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.4-3178C6?style=flat-square&logo=typescript&logoColor=white)
-![Netlify Functions](https://img.shields.io/badge/Netlify-Serverless-00C7B7?style=flat-square&logo=netlify&logoColor=white)
-![Gemini](https://img.shields.io/badge/Google%20Gemini-AI-4285F4?style=flat-square&logo=google&logoColor=white)
-[![CodeQL Scan](https://img.shields.io/badge/CodeQL-Security%20Scan-brightgreen?style=flat-square&logo=github)](.github/workflows/codeql.yml)
-[![Gitleaks Scan](https://img.shields.io/badge/Gitleaks-Secret%20Scan-blueviolet?style=flat-square&logo=github)](.github/workflows/gitleaks.yml)
-[![Contributing](https://img.shields.io/badge/contributions-welcome-orange?style=flat-square)](CONTRIBUTING.md)
-[![GSSoC 2026](https://img.shields.io/badge/GSSoC-2026%20Ready-ff69b4?style=flat-square)](issues/)
-[![Hacktoberfest](https://img.shields.io/badge/Hacktoberfest-2026-9B51E0?style=flat-square)](issues/)
-[![Security Policy](https://img.shields.io/badge/security-policy-critical?style=flat-square)](SECURITY.md)
-[![Roadmap](https://img.shields.io/badge/roadmap-public-informational?style=flat-square)](ROADMAP.md)
-[![Wiki](https://img.shields.io/badge/wiki-documentation-blueviolet?style=flat-square&logo=wikipedia)](wiki/Home.md)
+The owner selected [Evidence Studio](docs/rebrand/concepts/01-evidara-evidence-studio.png). Existing repository and deployment addresses retain their names until their owner changes them. This implementation has not been deployed.
 
-![AbstractiFy Feature Suite](public/screenshots/abstractify_hero.svg)
+## Research workspace
 
-## ℹ️ About
+| View         | Capabilities                                                                                                            |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Discover     | Existing Semantic Scholar/OpenAlex search, abstract-based stance synthesis, sorting, source links, paper selection      |
+| Library      | Save and remove papers within a project                                                                                 |
+| Evidence     | Compare dataset size, methodology, outcomes, and limitations                                                            |
+| Citation map | Interactive network and an accessible relationship list                                                                 |
+| Reader       | Abstracts, citation context, PDF extraction, document/search chat, extracted and manually entered equation explanations |
+| Brief        | Synthesis, working notes, Markdown/CSV/JSON/BibTeX exports, matrix and graph exports                                    |
 
-AbstractiFy is an open-source academic search and synthesis platform that transforms static literature lists into an interactive research intelligence workspace. It combines hybrid semantic search, structured extraction, and an interactive citation network to help researchers, students, and practitioners quickly understand consensus, compare study designs, and explore citation lineages — all without paywalls or proprietary lock-in.
+Projects, saved papers, and notes persist in this browser, with a maximum of 20 projects. PDF text stays in the current tab and clears on reload or project change. This is local persistence, not a cloud account or collaborative sync service.
 
-Key points:
+Gemini credentials come from the server or BYOK settings. User keys remain in memory unless the user explicitly chooses device storage. Legacy remembered Gemini/Groq keys are read for compatibility; Groq and Ollama synthesis are not connected. Provider usage may incur costs. Missing Gemini credentials produce limited metadata/keyword fallbacks, not equivalent AI results.
 
-- Free and MIT-licensed: built to remain accessible to the research community.
-- Hybrid ingestion: leverages Semantic Scholar and OpenAlex for broad coverage with local semantic re-ranking.
-- Interactive analysis: consensus meter, study comparison matrix, citation graphs, and in-document assistants speed up literature triage and synthesis.
+## Run locally
 
----
+Use Node 22.16.0 or a compatible Node 22 release. In Windows PowerShell, use `npm.cmd` if script policy blocks `npm.ps1`.
 
-## ⚡ Why AbstractiFy? (Feature Comparison)
-
-| Feature | AbstractiFy 🎓 | Google Scholar | Elicit | Consensus.ai |
-|---|:---:|:---:|:---:|:---:|
-| **100% Free & Open Source** | ✅ MIT | ✅ Free | ❌ Paid Tier | ❌ Paid Tier |
-| **Consensus Meter** | ✅ Free | ❌ No | ❌ No | 💰 Paid |
-| **Study Comparison Matrix** | ✅ Free | ❌ No | 💰 Paid | 💰 Paid |
-| **Citation Network Graph** | ✅ Interactive | ❌ No | ❌ No | ❌ No |
-| **Obsidian Graph & BibTeX Sync** | ✅ Native | ❌ No | ❌ No | ❌ No |
-| **Local Vector Search (BYOK)** | ✅ Free | ❌ No | ❌ No | ❌ No |
-| **PDF In-Doc Equation Explainer** | ✅ Native | ❌ No | ❌ No | ❌ No |
-
----
-
-> **AbstractiFy** is a premium, zero-cost academic search and synthesis portal that transforms research exploration from static paper lists into an interactive, consensus-driven intelligence suite[...] 
-
----
-
-## 📸 Screenshots
-
-### 🏛️ Landing Page
-![AbstractiFy Landing Page](public/screenshots/landing_page.png)
-
-### ⚙️ Credentials Settings — BYOK Mode
-![BYOK Settings](public/screenshots/settings_byok.png)
-
----
-
-## ✨ Features
-
-### 🔍 Hybrid Semantic Search & Global Ingestion
-Dynamically queries **Semantic Scholar** and **OpenAlex** APIs across 200M+ publications. Performs real-time L2-normalized vector similarity re-ranking using local text embeddings from Google Gemi[...]
-
-### 📊 The Consensus Meter
-Classifies findings from the top relevant papers on a query assertion (e.g., *"Does physical exercise decrease beta-amyloid accumulation?"*). Visualises support vs. contradiction balances with a c[...]
-
-### 🧮 Study Comparison Matrix
-Auto-extracts design parameters, core methodologies, primary outcomes, and limitations using structured JSON generation (Gemini schema parsing). Renders findings in an interactive spreadsheet form[...]
-
-### 🕸️ Interactive Citation Network Graph
-Visualises reference and citation lineages up to 2 degrees of depth using **vis-network**. Physics-stabilised, draggable HTML/JS network representations that colour-code papers by publication year[...]
-
-### 💬 Reading Assistant & Equation Explainer
-Upload academic PDFs, perform local chunking and index mapping. A regex-based parser identifies LaTeX math equations (`$`/`$$`) and runs a structured breakdown to explain variables and mathematica[...]
-
-### 🔗 Smart Citation Context
-Analyses how a paper is cited by others — classifying citation intent (supports, contradicts, extends, methodological) and extracting surrounding context for deeper understanding.
-
-### 🔒 Flexible Credentials Management
-- **Secure Background Mode**: Runs with pre-configured server-side keys without exposing secrets to the client.
-- **Bring Your Own Key (BYOK)**: Input your custom Gemini API key securely in the frontend settings panel.
-
----
-
-## 🏗️ Architecture
-
-```mermaid
-graph TD
-    User["User Browser"] -->|Search / Upload| FE["Frontend (Vanilla JS + CSS)"]
-    FE -->|API Requests| BF["Netlify Serverless Functions (TypeScript)"]
-
-    subgraph External_APIs["External APIs"]
-        SS["Semantic Scholar API"]
-        OA["OpenAlex API"]
-        GEM["Google Gemini API"]
-    end
-
-    BF --> SS
-    BF --> OA
-    BF --> GEM
-
-    FE -->|Vector Embeddings| EMBED["In-Memory Vector Search Index"]
-    FE -->|Graph Rendering| VIS["vis-network Interactive Graph"]
+```sh
+npm ci
+npm run repo:init
+npm run dev -- --offline
 ```
 
----
+Open **http://localhost:8888**. Netlify serves the frontend and local functions. Add real server credentials to a private `.env` based on [.env.example](.env.example), or configure Gemini through the interface. Do not use example placeholder values as credentials. `WORKSPACE_PASSCODE` is currently not enforced; see the security findings before public deployment.
 
-## 📂 Project Structure
+For a frontend-only preview, use `npm run preview` at http://127.0.0.1:4173. API features need Netlify Dev. `npm run build` copies locally installed Inter, Phosphor icons, and vis-network assets into ignored `public/vendor/`; deployment runs this build automatically. No runtime CDN is required.
 
-```
-Abstractify/
-├── public/                             # Frontend (served as static files)
-│   ├── index.html                      # Landing page + workspace UI
-│   ├── app.js                          # Client-side controller (~34KB)
-│   ├── styles.css                      # Custom styling
-│   └── screenshots/                    # App screenshots
-│
-├── netlify/functions/                  # Serverless API layer (TypeScript)
-│   ├── _utils.ts                       # Shared: API keys, Gemini client, types
-│   ├── search.ts                       # Hybrid semantic search + re-ranking
-│   ├── consensus.ts                    # Consensus Meter classification
-│   ├── compare.ts                      # Study Comparison Matrix extraction
-│   ├── citation-context.ts            # Smart citation intent analysis
-│   ├── network-graph.ts               # Citation network builder
-│   ├── pdf-upload.ts                   # PDF chunking handler
-│   ├── pdf-chat.ts                     # In-document vector chat (RAG)
-│   └── pdf-explain-math.ts            # LaTeX equation explainer
-│
-├── research/                           # AbstractiFy Research Intelligence Notebook
-│   └── AbstractiFy_Research_Intelligence_System.ipynb
-│
-├── .github/                            # GitHub automation & community health
-│   ├── ISSUE_TEMPLATE/                 # Structured YAML issue forms
-│   │   ├── bug_report.yml              # Bug report form
-│   │   ├── feature_request.yml         # Feature request form
-│   │   ├── documentation.yml           # Documentation improvement form
-│   │   └── config.yml                  # Issue chooser settings
-│   ├── workflows/                      # GitHub Actions CI/CD
-│   │   ├── ci.yml                      # Lint + Typecheck + Format pipeline
-│   │   ├── stale.yml                   # Auto-close stale issues/PRs
-│   │   └── release-drafter.yml         # Automated release notes
-│   ├── PULL_REQUEST_TEMPLATE.md        # PR checklist template
-│   ├── CODEOWNERS                      # Code review ownership
-│   ├── FUNDING.yml                     # GitHub Sponsors config
-│   ├── dependabot.yml                  # Dependency update automation
-│   │   └── release-drafter.yml         # Release drafter categories
-│
-├── .eslintrc.json                      # ESLint config
-├── .prettierrc                         # Prettier config
-├── .gitattributes                      # GitHub language detection
-├── .env.example                        # Environment variable template
-├── CONTRIBUTING.md                     # Contributor guide
-├── CODE_OF_CONDUCT.md                  # Contributor Covenant v2.1
-├── SECURITY.md                         # Vulnerability disclosure policy
-├── CHANGELOG.md                        # Release history (Keep a Changelog)
-├── LICENSE                             # MIT License
-├── netlify.toml                        # Build config + security headers
-├── package.json                        # Dependencies & scripts
-└── tsconfig.json                        # TypeScript compiler options
+## Verification
+
+```sh
+npm run build
+npm run typecheck
+npm run lint
+npm run lint:ui
+npm test
+npm run test:ui
 ```
 
----
+Browser checks use synthetic API fixtures, installed Chrome, and no provider credentials. Set `EVIDARA_CHROME` to your Chrome/Chromium executable on another platform. Screenshots go to ignored `logs/audit/`. Checks cover desktop/mobile behavior, search/error/empty states, inert source rendering, PDF/chat/math flows, exports, and local project persistence. They do not establish live provider availability. See [design-qa.md](design-qa.md).
 
-## ⚙️ Quick Start
+Repository-wide backend formatting has pre-existing failures documented in the audit. New frontend and verification files have a separate ESLint configuration.
 
-### Prerequisites
+## Analysis and decisions
 
-- [Node.js](https://nodejs.org/) v18+
-- [Netlify CLI](https://docs.netlify.com/cli/get-started/) (`npm install -g netlify-cli`)
-- A [Google Gemini API key](https://aistudio.google.com/app/apikey)
+[Documentation index](docs/README.md) links the deep audit, exact security findings, architecture, delivery plan, and proposed research skills. [Implementation record](docs/rebrand/IMPLEMENTATION.md) distinguishes delivered features from proposals. No confirmed malicious instruction or audit-hijacking prompt was found in inspected source; application prompt-injection risks remain documented.
 
-### Setup
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/vansh7nvc/Abstractify.git
-cd Abstractify
-
-# 2. Install dependencies
-npm install
-
-# 3. Configure environment
-cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY
-
-# 4. Start the dev server
-netlify dev
-
-# 5. Open http://localhost:8888
+```sh
+npm run log:decision -- "Decision" "Reason"
 ```
 
-### Available Scripts
+Decisions and reasons go to `logs/decisions/decisions.jsonl`. Logs, credentials, uploads, generated assets, caches, and private research data are ignored. Public documentation and safe configuration examples remain versioned. Ignore rules are not access controls or retroactive secret removal.
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Start local Netlify dev server |
-| `npm run validate` | Run typecheck + lint + format checks in one command |
-| `npm run lint` | Run ESLint on serverless functions |
-| `npm run lint:fix` | Auto-fix ESLint issues |
-| `npm run format` | Format code with Prettier |
-| `npm run format:check` | Check formatting without writing |
-| `npm run typecheck` | TypeScript type checking |
-
----
-
-## 🌐 Deployment
-
-Deploy to Netlify in a single command:
-
-```bash
-netlify deploy --prod
-```
-
-> [!IMPORTANT]
-> Configure `GEMINI_API_KEY` in **Netlify Site Settings** → **Environment variables** so serverless functions can access the model in production without exposing the key on the client.
-
----
-
-## 🛡️ Security
-
-- **Security headers** enforced via `netlify.toml` (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`)
-- **No client-side API key exposure** in Secure Background Mode
-- **BYOK keys** are sent via headers, never persisted server-side
-- For vulnerability reports, see our [Security Policy](SECURITY.md)
-
----
-
-## 🗺️ Roadmap
-
-Check out our public [ROADMAP.md](ROADMAP.md) to track project progress across Phase 1 to Phase 6.
-
----
-
-## 🤝 Contributing & Community Support
-
-We welcome contributions from everyone! Whether it's fixing a typo, improving documentation, or building a new feature — every contribution matters.
-
-- 📖 Read the [Contributing Guide](CONTRIBUTING.md) to get started
-- 🎯 Browse [36 community issue specifications](https://github.com/vansh7nvc/Abstractify/issues) ready for open source contributors
-- 🏷️ Look for [`good first issue`](https://github.com/vansh7nvc/Abstractify/labels/good%20first%20issue) labels
-- 💬 Read the [Community Support Guide](SUPPORT.md) for help & FAQ
-- 📋 Check the [Code of Conduct](CODE_OF_CONDUCT.md)
-
----
-
-## 📋 Changelog
-
-All notable changes are documented in the [CHANGELOG](CHANGELOG.md), following the [Keep a Changelog](https://keepachangelog.com/) format.
-
----
-
-## 🏆 Contributors Hall of Fame
-
-Thank you to all our amazing open-source contributors! 💖
-
-<a href="https://github.com/vansh7nvc/Abstractify/graphs/contributors">
-  <img src="https://contrib.rocks/preview?repo=vansh7nvc%2FAbstractify" alt="AbstractiFy Contributors" />
-</a>
-
-Want to see your avatar here? Check out our [`good first issue`](https://github.com/vansh7nvc/Abstractify/labels/good%20first%20issue) list and submit your first PR! 🚀
-
----
-
-## ⭐ Star History
-
-If you find AbstractiFy useful, consider giving it a ⭐ on GitHub — it helps the project grow!
-
----
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).
-
-**Copyright © 2026 Vansh Sharma**
+The project is [MIT licensed](LICENSE). Contribution guidance, wiki, and historical issue specifications remain available and may describe the former Abstractify product. The frontend rebrand does not repair existing backend authentication, session ownership, rate limiting, or model source-boundary issues; see [security findings](docs/security/SECURITY-FINDINGS.md).
