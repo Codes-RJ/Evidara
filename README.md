@@ -17,6 +17,10 @@ The owner selected [Evidence Studio](docs/rebrand/concepts/01-evidara-evidence-s
 
 Projects, saved papers, and notes persist in this browser, with a maximum of 20 projects. PDF text stays in the current tab and clears on reload or project change. This is local persistence, not a cloud account or collaborative sync service.
 
+Search defaults to up to **25 papers**. Choose **10, 25, or 50** below the search field; the choice is restored with the project after a search. `/api/search` accepts an integer `limit` from 1 to 50. Both discovery providers request at least 25 candidates, or 50 for a 50-paper search. Abstract filtering can produce fewer results. Semantic ranking runs at most five embedding requests concurrently; larger searches still increase total provider calls and downstream AI prompt size. Citation reference fetching retains its separate top-eight-paper budget. Searches currently return one bounded result batch, without pagination.
+
+Search tries OpenAlex when the primary source fails or supplies no usable abstracts, and distinguishes provider failure from genuinely empty results. Transient failures receive bounded retries; slow optional cache/ranking stages do not indefinitely block discovered papers. Optional `SEMANTIC_SCHOLAR_API_KEY` and `OPENALEX_API_KEY` server settings reduce reliance on anonymous discovery quotas; provider limits still apply. See the [first-search reliability review](docs/audit/SEARCH-RELIABILITY.md).
+
 Gemini credentials come from the server or BYOK settings. User keys remain in memory unless the user explicitly chooses device storage. Legacy remembered Gemini/Groq keys are read for compatibility; Groq and Ollama synthesis are not connected. Provider usage may incur costs. Missing Gemini credentials produce limited metadata/keyword fallbacks, not equivalent AI results.
 
 ## Run locally

@@ -37,10 +37,14 @@ Fonts and graph/icon assets load locally. Native dialogs, labels, landmarks, ski
 ## Validation
 
 - Build, TypeScript, frontend ESLint, syntax, changed-frontend formatting, and Git whitespace checks passed.
-- 107 unit tests passed across 8 files.
+- The original rebrand passed 107 unit tests across 8 files. The subsequent search-limit expansion passed 121 tests across 9 files, covering default/requested/invalid limits, fallback provider sizing, cache partitioning, sparse abstracts, and embedding concurrency.
 - Chrome interaction checks passed: search/sorting/empty/error/stale results, inert executable-looking source text, saved library, comparison, network controls, citation context, PDF extraction/removal, formula selection/manual entry, chat, BYOK forwarding/opt-in/clearing, dialog Escape, 13 export combinations, secret-free exports, project switching, notes/reload, and every view at 360/768/1100/1280 px.
 - No browser runtime errors were observed in the verification suite.
 - Actual local Netlify frontend returned HTTP 200; search and PDF invalid-input checks returned the expected HTTP 400 without provider calls. Static Netlify Dev mode avoids the initial framework misdetection and observed Windows/OneDrive watcher failure. An unused Netlify Database startup warning remains environmental; the app does not depend on Netlify Database.
 - Backend ESLint passed with 97 pre-existing warnings. The repository-wide backend formatting check still reports 19 pre-existing files; the overall `validate` command therefore is not fully green.
 
 Authentication, session ownership, model source isolation, and server request budgets remain outside this frontend sign-off. Exact baseline/current locations and frontend remediation status are recorded in [security findings](docs/security/SECURITY-FINDINGS.md).
+
+The subsequent search-limit change adds a labeled 10/25/50 control and a usage notice beneath the search field. This intentionally increases the search section's height relative to the original mockup. Browser checks verify the 25-paper default, forwarding a 50-paper request, restoring the project setting, and maintaining all-view responsive layout checks. Synthetic fixtures continue to contain only their prescribed sample records; actual result counts and the API cap are verified independently by endpoint tests.
+
+The first-search reliability repair subsequently passed 132 unit tests and added browser regressions for one-submission recovery after an HTML 502, malformed search output, persistent failure, missing abstracts, and a server-requested cooldown. Direct unauthenticated provider checks for “Open Knowledge Format” returned HTTP 429 from both sources; this observation does not establish deployed-site behavior or eliminate the need for provider credentials/quota availability. See [the reliability review](docs/audit/SEARCH-RELIABILITY.md).
