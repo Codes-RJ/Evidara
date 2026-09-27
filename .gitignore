@@ -1,34 +1,76 @@
-# Dependencies
+# Dependencies and generated builds
 node_modules/
+/dist/
+/build/
+/public/vendor/
+*.tsbuildinfo
 
-# Build output
-dist/
-
-# Environment & secrets
+# Local configuration and secrets; keep safe example templates versioned
 .env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
 
-# Netlify local
+# Local platform state and caches
 .netlify/
+# Netlify Dev creates this even though the application has no Deno/Edge source.
+/deno.lock
+.vercel/
+.cache/
+.npm/
+.eslintcache
+.prettiercache
 
-# Research artifacts (vendored)
+# Local decisions, runtime logs, and diagnostic output
+/logs/
+/log/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Private or generated research data (source notebooks stay versioned)
+/data/
+/uploads/
+/artifacts/
 paper_embeddings.npy
 paper_faiss.index
 notebook_outline.txt
 check_env.py
 read_notebook*.py
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
 
-# Temp scripts
-*.ps1
+# Tests and browser reports
+/coverage/
+/test-results/
+/playwright-report/
+/blob-report/
+
+# Temporary publishing and local scratch files
+/.temp_wiki/
+/temp_issue_*.md
+/tmp/
+/temp/
+*.tmp
+*.bak
+*.swp
+*.swo
 extract_docx.ps1
 
-# Editor / IDE
+# Editor and operating-system state
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
 
-# Linter & test coverage
-.eslintcache
-coverage/
-
-# Internal docs
-docs/
+# Keep docs/, scripts/, lockfiles, configuration, and safe fixtures versioned.
 
